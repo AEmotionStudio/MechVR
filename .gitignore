@@ -1,0 +1,10 @@
+# build output
+build/
+mechvr
+mechvr-release
+mechvr-packed
+
+# Blender backups and tool leftovers
+*.blend1
+*.tmp
+__pycache__/

@@ -1,0 +1,225 @@
+# MechVR shapes. Edit by hand, or in Blender with tools/mechvr_blender.py (it reads and writes this file).
+# Units are metres, +Y up, -Z forward, +X right. Up to 16 pieces per shape; later pieces act on what came before.
+#
+# shape NAME at X Y Z on PARENT   the shape's origin is a joint at X Y Z on PARENT (ARM_L on TORSO: the shoulder).
+#                                 Without 'on', 'at' is only where Blender shows the shape; the game ignores it.
+# point NAME X Y Z                a named spot on the shape that the game looks up (weapon muzzle, pilot's eye ...)
+# kind  centre x y z   half-size x y z   round   pitch yaw roll (degrees)   op k   material   # name
+#   kind:      box, cyl (axis Y; half-size = radius, half-height, radius), sphere, capsule (radius, half-length, radius)
+#   op k:      add 0, sub 0 (cut away), smooth K (blend over K metres), and 0 (keep only the overlap)
+#   material:  armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin
+
+shape PELVIS at 0 4.55 0
+box     0 0 0                  1 0.42 0.78          0.16   0 0 0      add 0      armor2
+cyl     0 0 0                  0.38 1.6 0.38        0.05   0 0 -90    add 0      frame
+box     0 -0.34 -0.5           0.42 0.3 0.3         0.1    0 0 0      add 0      armor
+cyl     0 0.5 0                0.72 0.18 0.72       0.04   0 0 0      add 0      frame
+
+shape TORSO at 0 0.68 0 on PELVIS   # origin: top of the turret ring
+point EYE 0 1.62 -0.55                # the pilot's eye; the cockpit (CK_SHELL) is drawn around it
+point AIM 0 1.6 0                     # the torso and arms turn to aim from here
+box     0 1.25 0.1             1.55 1.05 1.45       0.24   0 0 0      add 0      armor
+box     0 2.62 -1.75           2 0.9 0.9            0      38 0 0     sub 0      armor   # sloped brow
+box     0 -0.05 -1.8           2 0.8 0.8            0      -42 0 0    sub 0      armor2  # undercut chin
+box     0 1.5 -1.22            0.9 0.55 0.48        0.22   0 0 0      add 0      glass   # canopy
+box     0 1.5 -1.26            0.06 0.6 0.5         0.03   0 0 0      add 0      frame   # canopy bar
+box     0 1.3 1.5              1.1 0.78 0.45        0.14   0 0 0      add 0      armor2  # engine block
+cyl     0.55 2.25 1.5          0.2 0.55 0.2         0.03   0 0 0      add 0      frame   # exhaust stacks
+cyl     -0.55 2.25 1.5         0.2 0.55 0.2         0.03   0 0 0      add 0      frame
+cyl     0 1.6 0.1              0.5 1.95 0.5         0.06   0 0 -90    add 0      frame   # shoulder axle
+box     0.72 2.38 0.3          0.36 0.14 0.5        0.06   0 0 0      add 0      armor2  # sensor pod
+capsule -0.95 2.9 0.9          0.04 0.7 0.04        0      0 0 0      add 0      frame   # antenna
+box     1.55 1.2 0.35          0.12 0.42 0.6        0.02   0 0 0      sub 0      frame   # side intakes
+box     -1.55 1.2 0.35         0.12 0.42 0.6        0.02   0 0 0      sub 0      frame
+box     0 0.72 -1.33           0.9 0.09 0.06        0.02   0 0 0      add 0      accent  # stripe under the canopy
+
+shape ARM_L at -2.1 1.6 0.1 on TORSO   # twin autocannon. origin: shoulder joint
+point MUZZLE -0.35 -0.75 -3.2         # shots leave here, between the two barrels
+box     -0.35 0.25 0           0.5 0.55 0.75        0.2    0 0 0      add 0      armor
+box     -0.35 -0.5 -0.2        0.36 0.5 0.7         0.1    0 0 0      add 0      armor2
+box     -0.35 -0.75 -1.1       0.44 0.38 0.7        0.1    0 0 0      add 0      armor
+cyl     -0.55 -0.75 -2.35      0.13 0.8 0.13        0.02   90 0 0     add 0      frame
+cyl     -0.15 -0.75 -2.35      0.13 0.8 0.13        0.02   90 0 0     add 0      frame
+cyl     -0.55 -0.75 -3.05      0.18 0.12 0.18       0.03   90 0 0     add 0      frame
+cyl     -0.15 -0.75 -3.05      0.18 0.12 0.18       0.03   90 0 0     add 0      frame
+cyl     -0.35 -0.3 0.62        0.4 0.3 0.4          0.05   0 0 -90    add 0      armor2
+box     -0.86 0.25 0           0.03 0.25 0.45       0.01   0 0 0      add 0      accent
+
+shape ARM_R at 2.1 1.6 0.1 on TORSO   # plasma pod. origin: shoulder joint
+point MUZZLE 0.4 -0.7 -2              # plasma bolts leave here
+box     0.35 0.25 0            0.5 0.55 0.75        0.2    0 0 0      add 0      armor
+box     0.35 -0.5 -0.2         0.36 0.5 0.7         0.1    0 0 0      add 0      armor2
+box     0.4 -0.7 -0.9          0.56 0.5 1           0.12   0 0 0      add 0      armor
+cyl     0.16 -0.48 -1.8        0.15 0.3 0.15        0.01   90 0 0     sub 0      glow
+cyl     0.64 -0.48 -1.8        0.15 0.3 0.15        0.01   90 0 0     sub 0      glow
+cyl     0.16 -0.92 -1.8        0.15 0.3 0.15        0.01   90 0 0     sub 0      glow
+cyl     0.64 -0.92 -1.8        0.15 0.3 0.15        0.01   90 0 0     sub 0      glow
+box     0.4 -0.7 0.25          0.4 0.38 0.2         0.08   0 0 0      add 0      armor2
+box     0.86 0.25 0            0.03 0.25 0.45       0.01   0 0 0      add 0      accent
+
+shape THIGH at -1.45 0 0 on PELVIS   # left leg; the game mirrors it for the right. origin: hip joint
+sphere  0 0 0                  0.48 0.48 0.48       0      0 0 0      add 0      frame
+box     0 -0.95 0              0.42 0.85 0.5        0.16   0 0 0      add 0      armor
+box     0 -0.8 -0.36           0.5 0.55 0.25        0.1    0 0 0      add 0      armor2
+cyl     0 -1.9 0               0.4 0.5 0.4          0.05   0 0 -90    add 0      frame
+
+shape SHIN at 0 -1.9 0 on THIGH   # origin: knee
+box     0 -1 0                 0.33 0.95 0.38       0.12   0 0 0      add 0      armor2
+capsule 0 -0.9 0.42            0.09 0.7 0.09        0      0 0 0      add 0      frame
+box     0 -1.2 -0.3            0.42 0.6 0.18        0.08   0 0 0      add 0      armor
+cyl     0 -2.2 0               0.32 0.45 0.32       0.05   0 0 -90    add 0      frame
+
+shape FOOT at 0 -2.2 0 on SHIN   # origin: ankle
+point SOLE 0 -0.45 0                  # the height of the ground under the foot
+box     0 -0.27 -0.25          0.6 0.18 0.95        0.08   0 0 0      add 0      armor2
+box     0.32 -0.25 -1.3        0.22 0.16 0.4        0.08   0 0 0      add 0      armor
+box     -0.32 -0.25 -1.3       0.22 0.16 0.4        0.08   0 0 0      add 0      armor
+box     0 -0.2 0.85            0.25 0.14 0.35       0.06   0 0 0      add 0      frame
+box     0 -0.02 -0.2           0.4 0.16 0.5         0.1    0 0 0      add 0      armor
+
+shape ROCK0 at -12 0 0   # tall spire
+box     0 2.4 0                1.5 2.7 1.3          0.5    6 20 8     add 0      rock
+box     1.1 1 0.5              1.2 1.3 1.1          0.4    -8 50 12   smooth 0.5 rock
+box     -0.9 0.6 -0.8          1 0.9 1              0.35   10 -30 -6  smooth 0.4 rock
+
+shape ROCK1 at -12 0 7   # boulder
+box     0 0.6 0                1.1 0.8 0.9          0.4    8 25 5     add 0      rock
+box     0.6 0.4 0.5            0.7 0.6 0.6          0.3    -12 60 10  smooth 0.3 rock
+
+shape ROCK2 at -12 0 14   # leaning slab
+box     0 1.3 0                2.2 1.5 0.6          0.3    14 10 6    add 0      rock
+box     -1 0.5 0.9             1 0.7 0.8            0.35   -5 40 0    smooth 0.4 rock
+
+shape BOLT at 5 1 6
+capsule 0 0 0                  0.09 0.9 0.09        0      90 0 0     add 0      plasma
+
+shape HAND at 5 1.2 4   # open glove, fingers along -Z of the controller's aim pose
+box     0 0 -0.03              0.02 0.042 0.06      0.017  0 0 0      add 0      glove   # palm and fingers
+box     0 0.05 -0.02           0.012 0.013 0.032    0.01   0 0 0      add 0      glove   # thumb
+box     0 0 0.055              0.027 0.04 0.028     0.012  0 0 0      add 0      frame   # cuff
+
+shape FIST at 5.3 1.2 4   # closed glove, used while gripping
+box     0 -0.005 -0.005        0.026 0.044 0.036    0.02   0 0 0      add 0      glove   # fist
+box     0 0.04 -0.03           0.013 0.012 0.026    0.01   0 0 0      add 0      glove   # thumb
+box     0 -0.005 0.055         0.027 0.04 0.026     0.012  0 0 0      add 0      frame   # cuff
+
+shape CK_SHELL at 9 1.6 0   # cockpit. origin: the pilot's eye. A hollow box with window openings
+box     0 -0.15 -0.1           1 1.05 1.2           0.12   0 0 0      add 0      armor2
+box     0 -0.15 -0.1           0.9 0.95 1.1         0.1    0 0 0      sub 0      cabin
+box     0 0.07 -1.25           0.82 0.49 0.3        0.12   0 0 0      sub 0      frame   # windshield
+box     1 0.1 -0.45            0.3 0.36 0.55        0.1    0 0 0      sub 0      frame   # side windows
+box     -1 0.1 -0.45           0.3 0.36 0.55        0.1    0 0 0      sub 0      frame
+box     0 0.9 -0.55            0.5 0.3 0.38         0.1    0 0 0      sub 0      frame   # roof window
+box     0.5 0.07 -1.22         0.02 0.5 0.03        0.01   0 0 0      add 0      frame   # windshield struts, clear of the center
+box     -0.5 0.07 -1.22        0.02 0.5 0.03        0.01   0 0 0      add 0      frame
+
+shape CK_DASH at 0 0 0 on CK_SHELL
+box     0 -0.62 -1             0.86 0.2 0.12        0.04   -22 0 0    add 0      frame
+box     0 -0.56 -0.87          0.27 0.17 0.025      0.01   -22 0 0    add 0      screen
+box     -0.55 -0.56 -0.875     0.17 0.12 0.02       0.01   -22 0 0    add 0      armor2
+box     0.55 -0.56 -0.875      0.17 0.12 0.02       0.01   -22 0 0    add 0      armor2
+sphere  -0.63 -0.53 -0.853     0.022 0.022 0.022    0      0 0 0      add 0      glow
+sphere  -0.55 -0.53 -0.853     0.022 0.022 0.022    0      0 0 0      add 0      accent
+sphere  -0.47 -0.53 -0.853     0.022 0.022 0.022    0      0 0 0      add 0      plasma
+box     0.55 -0.55 -0.853      0.11 0.02 0.012      0.005  -22 0 0    add 0      plasma
+box     0.55 -0.61 -0.85       0.11 0.012 0.012     0.005  -22 0 0    add 0      glow
+
+shape CK_SEAT at 0 0 0 on CK_SHELL
+box     0 -0.88 0.12           0.27 0.07 0.3        0.05   0 0 0      add 0      seat
+box     0 -0.44 0.47           0.25 0.48 0.07       0.05   8 0 0      add 0      seat
+box     0 -1 0.14              0.2 0.08 0.25        0.03   0 0 0      add 0      frame
+
+shape CK_SIDE_L at 0 0 0 on CK_SHELL
+box     -0.44 -0.69 -0.3       0.17 0.15 0.5        0.04   0 0 0      add 0      armor2
+box     -0.44 -0.545 -0.02     0.12 0.012 0.16      0.008  0 0 0      add 0      seat
+box     -0.36 -0.545 -0.32     0.03 0.008 0.14      0.004  0 0 0      add 0      accent
+
+shape CK_SIDE_R at 0 0 0 on CK_SHELL
+box     0.44 -0.69 -0.3        0.17 0.15 0.5        0.04   0 0 0      add 0      armor2
+box     0.44 -0.545 -0.02      0.12 0.012 0.16      0.008  0 0 0      add 0      seat
+cyl     0.36 -0.55 -0.3        0.05 0.012 0.05      0.005  0 0 0      add 0      seat
+
+shape CK_THROTTLE at -0.36 -0.52 -0.3 on CK_SHELL   # origin: pivot
+point GRIP 0 0.16 0                   # where the hand holds the lever
+sphere  0 0 0                  0.028 0.028 0.028    0      0 0 0      add 0      frame
+capsule 0 0.07 0               0.011 0.07 0.011     0      0 0 0      add 0      frame
+cyl     0 0.16 0               0.022 0.048 0.022    0.01   0 0 -90    add 0      accent
+
+shape CK_STICK at 0.36 -0.54 -0.3 on CK_SHELL   # origin: pivot
+point GRIP 0 0.14 0                   # where the hand holds the stick
+sphere  0 0 0                  0.028 0.028 0.028    0      0 0 0      add 0      frame
+capsule 0 0.05 0               0.012 0.05 0.012     0      0 0 0      add 0      frame
+capsule 0 0.14 0               0.023 0.04 0.023     0      0 0 0      add 0      seat
+sphere  0 0.2 -0.006           0.013 0.013 0.013    0      0 0 0      add 0      accent
+
+shape CK_EJECT at 0 0.4 -0.4 on CK_SHELL   # origin: middle of the handle bar
+cyl     0 0 0                  0.017 0.08 0.017     0.008  0 0 -90    add 0      hazard
+capsule -0.065 0.2 0           0.007 0.2 0.007      0      0 0 0      add 0      frame
+capsule 0.065 0.2 0            0.007 0.2 0.007      0      0 0 0      add 0      frame
+
+shape BEACON at 7 5 6   # light pillar over a mech you can board
+capsule 0 0 0                  0.12 5 0.12          0      0 0 0      add 0      plasma
+
+shape TRACER at 6 1 6
+capsule 0 0 0                  0.05 0.7 0.05        0      90 0 0     add 0      glow
+
+shape PISTOL at 5.6 1.2 4   # barrel along -Z of the controller's aim pose
+box     0 0 -0.07              0.016 0.024 0.1      0.006  0 0 0      add 0      frame
+box     0 -0.065 0.02          0.015 0.05 0.024     0.006  -14 0 0    add 0      seat
+box     0 0.03 -0.07           0.006 0.008 0.08     0.002  0 0 0      add 0      accent
+sphere  0 0 -0.175             0.012 0.012 0.012    0      0 0 0      add 0      plasma
+
+shape DRONE at -6 3 -10   # flying enemy. origin: centre of the body, nose towards -Z
+point MUZZLE 0 -0.22 -0.58            # shots leave here
+box     0 0 0                  0.32 0.22 0.45       0.2    0 0 0      add 0      armor   # body
+sphere  0 -0.02 -0.4           0.15 0.15 0.15       0      0 0 0      add 0      glow    # eye
+box     0 0.05 0               0.48 0.035 0.09      0.03   0 0 0      add 0      frame   # rotor arms
+cyl     -0.66 0.05 0           0.27 0.07 0.27       0.03   0 0 0      add 0      frame   # rotor housings
+cyl     0.66 0.05 0            0.27 0.07 0.27       0.03   0 0 0      add 0      frame
+cyl     -0.66 0.05 0           0.2 0.2 0.2          0      0 0 0      sub 0      armor2  # rotor openings
+cyl     0.66 0.05 0            0.2 0.2 0.2          0      0 0 0      sub 0      armor2
+sphere  -0.66 0.05 0           0.07 0.07 0.07       0      0 0 0      add 0      accent  # rotor hubs
+sphere  0.66 0.05 0            0.07 0.07 0.07       0      0 0 0      add 0      accent
+box     0 0.2 0.42             0.03 0.17 0.14       0.02   0 0 0      add 0      armor2  # tail fin
+cyl     0 -0.22 -0.28          0.05 0.26 0.05       0.01   90 0 0     add 0      frame   # gun
+
+shape CRAWLER at -9.5 1 -10   # four-legged ground enemy, about 1 m tall. origin: centre of the body
+point MUZZLE 0 -0.13 -0.95            # shots leave here
+point SOLE 0 -1 0                     # the height of the ground under the body
+box     0 0 0                  0.42 0.26 0.6        0.2    0 0 0      add 0      armor   # body
+box     0 0.04 -0.62           0.22 0.16 0.14       0.06   0 0 0      add 0      armor2  # head
+sphere  0 0.06 -0.75           0.09 0.09 0.09       0      0 0 0      add 0      glow    # eye
+box     0 0.25 0.18            0.28 0.09 0.3        0.05   0 0 0      add 0      frame   # back pack
+cyl     0 -0.13 -0.72          0.06 0.2 0.06        0.01   90 0 0     add 0      frame   # gun
+box     0 0.3 -0.25            0.3 0.02 0.05        0.01   0 0 0      add 0      accent  # stripe
+
+shape CRAWLER_LEG at -0.4 -0.05 -0.4 on CRAWLER   # front left leg; the game turns and mirrors it for the other three. origin: hip. Keep it the same front and back
+sphere  0 0 0                  0.14 0.14 0.14       0      0 0 0      add 0      frame   # hip
+capsule -0.3 0.125 0           0.07 0.32 0.07       0      0 0 67     add 0      frame   # upper leg
+sphere  -0.6 0.25 0            0.11 0.11 0.11       0      0 0 0      add 0      frame   # knee
+capsule -0.7 -0.325 0          0.065 0.58 0.065     0      0 0 -9.9   add 0      armor2  # lower leg
+box     -0.69 -0.2 0           0.07 0.3 0.1         0.05   0 0 -9.9   add 0      armor   # shin plate
+sphere  -0.8 -0.88 0           0.09 0.09 0.09       0      0 0 0      add 0      frame   # foot
+
+shape TURRET_BASE at -14 0 -10   # fixed gun emplacement. origin: on the ground
+cyl     0 0.25 0               1.3 0.25 1.3         0.08   0 0 0      add 0      frame   # foot plate
+box     0 0.9 0                0.8 0.5 0.8          0.15   0 0 0      add 0      armor2  # pedestal
+cyl     0 1.45 0               0.7 0.09 0.7         0.03   0 0 0      add 0      frame   # turning ring
+box     0 0.9 -0.8             0.5 0.1 0.04         0.02   0 0 0      add 0      hazard  # warning stripe
+box     0 0.9 0.8              0.5 0.1 0.04         0.02   0 0 0      add 0      hazard
+
+shape TURRET_HEAD at 0 1.55 0 on TURRET_BASE   # turns to aim. origin: the pivot on top of the base
+point MUZZLE 0 0.3 -2.2               # shots leave here, between the two barrels
+box     0 0.45 0.1             0.75 0.42 0.85       0.18   0 0 0      add 0      armor   # housing
+box     0 1 -1.1               1 0.5 0.5            0      35 0 0     sub 0      armor   # sloped front
+box     0 0.52 -0.72           0.3 0.08 0.06        0.03   0 0 0      add 0      glow    # sensor slit
+cyl     -0.3 0.3 -1.3          0.12 0.8 0.12        0.02   90 0 0     add 0      frame   # barrels
+cyl     0.3 0.3 -1.3           0.12 0.8 0.12        0.02   90 0 0     add 0      frame
+cyl     -0.3 0.3 -2.05         0.17 0.1 0.17        0.03   90 0 0     add 0      frame   # muzzle brakes
+cyl     0.3 0.3 -2.05          0.17 0.1 0.17        0.03   90 0 0     add 0      frame
+box     -0.8 0.45 0.15         0.06 0.3 0.5         0.03   0 0 0      add 0      armor2  # side plates
+box     0.8 0.45 0.15          0.06 0.3 0.5         0.03   0 0 0      add 0      armor2
+capsule 0.5 1.15 0.6           0.03 0.35 0.03       0      0 0 0      add 0      frame   # antenna
+
+shape SPIT at -4 1 -10   # a crawler's shot
+capsule 0 0 0                  0.06 0.16 0.06       0      90 0 0     add 0      plasma
