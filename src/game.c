@@ -8,15 +8,16 @@
 int game_look = 0;
 
 typedef struct { v3 p, v; float age, life, size, grow, grav, drag, seed, spin; int type; } Particle;
-typedef struct { int active, owner, kind; v3 p, v; float life, dmg; } Bolt; // kind: 0 cannon tracer, 1 plasma, 2 crawler spit
+typedef struct { int active, owner, kind; v3 p, v; float life, dmg; } Bolt; // kind: 0 cannon tracer, 1 plasma, 2 crawler spit, 3 spore (falls, bursts), 4 needle
 typedef struct {
     int active, shape, team, ndent, rest;
     xf x;
     v3 v, w;
     float dent[8][4], heat[8], seed, age, radius, emit, scale;
+    int flip, arm; // drawn mirrored; arm: 1 + the kind of arm this is (it can be grafted onto a mech), or 0
 } Debris;
 typedef struct { float t; int mech, part, rock, ground; v3 local; int bot, worm; } Hit; // bot: a small enemy, worm: a part of the worm, or -1
-enum { PT_SMOKE, PT_FIRE, PT_SPARK, PT_FLASH, PT_DUST, PT_RETICLE };
+enum { PT_SMOKE, PT_FIRE, PT_SPARK, PT_FLASH, PT_DUST, PT_RETICLE, PT_ICHOR };
 enum { MODE_FOOT, MODE_PILOT, MODE_EJECT };
 enum { GRAB_NONE, GRAB_THROTTLE, GRAB_STICK, GRAB_EJECT };
 
@@ -27,6 +28,7 @@ enum { GRAB_NONE, GRAB_THROTTLE, GRAB_STICK, GRAB_EJECT };
 #define TOP_SPEED 7.5f
 static Mech mech[NMECH];
 static int nmech = 5, horde, swarm;
+static int myBody = CH_MACHINE, myArm[2] = {ARM_CANNON, ARM_PLASMA}; // what your own mech starts as
 static float wormDist = 380; // how far ahead of the start it lives; 0 = no worm
 int game_cards = 1; // draw distant mechs as flat cards
 int game_calm;      // test option: 1 = nobody attacks, 2 = enemy mechs do not attack but the small enemies do
@@ -49,7 +51,7 @@ static struct {
     int grab[2], sqPrev[2], barrel;
     v3 grabStart[2];
     float hp, hurt, fade, fadeDir;
-    int pendingBoard, dead;
+    int pendingBoard, dead, graft; // graft: a fallen arm within reach of your mech, or -1
     v3 ejV, aim;
     float aimDist, alarm;
     float wornTime;      // seconds the headset has been worn; the seat is fitted to you shortly after
@@ -93,6 +95,10 @@ static void sparks(v3 p, v3 n, int count, float speed, float size) {
     for (int i = 0; i < count; i++)
         spawn(PT_SPARK, p, vadd(vmul(n, speed * (0.4f + frand())), rv(speed * 0.6f)), 0.3f + frand() * 0.5f, size * (0.6f + frand()), 0, -9.8f, 0.6f);
 }
+static void ichor(v3 p, v3 n, int count) { // a living part's answer to sparks
+    for (int i = 0; i < count; i++)
+        spawn(PT_ICHOR, p, vadd(vmul(n, 3 * (0.4f + frand())), rv(2.5f)), 0.5f + frand() * 0.5f, 0.14f + 0.14f * frand(), 0.1f, -9.8f, 0.6f);
+}
 static void burst(v3 p, float scale) { // explosion
     spawn(PT_FLASH, p, V3(0, 0, 0), 0.16f, 3.2f * scale, 0, 0, 0);
     for (int i = 0; i < (int)(16 * scale); i++) fire(vadd(p, rv(scale)), 1.1f * scale);
@@ -105,8 +111,8 @@ static void burst(v3 p, float scale) { // explosion
 // The cabin follows the mech's position and heading only (never its lean), and only part of its bounce.
 static xf cockpit_anchor(const Mech *m) {
     quat q = qaxis(UP, m->yaw + m->torsoYaw);
-    v3 base = vadd(V3(m->pos.x, m->pos.y + pl.bob, m->pos.z), qrot(qaxis(UP, m->yaw), shapes[S_TORSO].at));
-    return XF(vadd(base, qrot(q, pnt[PNT_TORSO_EYE])), q);
+    v3 base = vadd(V3(m->pos.x, m->pos.y + pl.bob, m->pos.z), qrot(qaxis(UP, m->yaw), shapes[mech_shape(m, P_TORSO)].at));
+    return XF(vadd(base, qrot(q, mech_point(m, MP_EYE))), q);
 }
 static void calibrate(const Input *in) {
     pl.calib = XF(in->head.p, qaxis(UP, qyaw(in->head.q)));
@@ -120,6 +126,11 @@ xf game_rig(void) { return rigNow; }
 int game_piloting(void) { return pl.mode == MODE_PILOT; }
 void game_haptics(float *l, float *r) { *l = hapL; *r = hapR; hapL = hapR = 0; }
 static int deaths;
+void game_loadout(int body, int armL, int armR) {
+    myBody = body & 1;
+    myArm[0] = (unsigned)armL % ARM_COUNT;
+    myArm[1] = (unsigned)armR % ARM_COUNT;
+}
 void game_worm(float dist) { wormDist = dist; }
 void game_swarm(int n) { swarm = n < 0 ? 0 : n > 64 ? 64 : n; }
 void game_horde(int n) { horde = n < 0 ? 0 : n > NMECH - 5 ? NMECH - 5 : n; }
@@ -138,7 +149,9 @@ static Debris *add_debris(int shape, xf x, int team, v3 v) {
     return d;
 }
 static void detach(Mech *m, int part, v3 push) {
-    Debris *d = add_debris(partShape[part], m->world[part], m->team, push);
+    Debris *d = add_debris(mech_shape(m, part), m->world[part], m->team, push);
+    d->flip = mech_flip(m, part);
+    if (part == P_ARM_L || part == P_ARM_R) d->arm = 1 + m->arm[part - P_ARM_L];
     d->ndent = m->ndent[part];
     memcpy(d->dent, m->dent[part], sizeof d->dent);
     memcpy(d->heat, m->heat[part], sizeof d->heat);
@@ -164,7 +177,8 @@ static void apply_hit(Mech *m, int part, v3 local, v3 wpos, v3 dir, float dmg) {
     v3 back = vmul(dir, -1);
     m->aggro = 1;
     spawn(PT_FLASH, vadd(wpos, vmul(back, 0.15f)), V3(0, 0, 0), 0.1f, 0.5f + dmg * 0.03f, 0, 0, 0);
-    sparks(wpos, back, 5, 6, 0.06f);
+    if (shapes[mech_shape(m, part)].bio) ichor(wpos, back, 5);
+    else sparks(wpos, back, 5, 6, 0.06f);
     audio_play(SND_HIT, wpos, 0.35f + dmg * 0.02f);
     if (pl.mode == MODE_PILOT && m == &mech[pl.mech]) { // you feel hits to your own mech
         hapL = hapR = clampf(0.3f + dmg * 0.03f, 0, 1);
@@ -350,14 +364,19 @@ void game_init(int demo, int startOnFoot) {
     mech[2].throttle = mech[3].throttle = 3.2f;
     mech[2].aiTurn = 0.13f;
     mech[3].aiTurn = -0.11f;
-    mech[2].aiFire = mech[3].aiFire = 2;
+    mech_outfit(&mech[0], myBody, myArm[0], myArm[1]);
+    for (int a = 0; a < 2; a++) mech[2].cool[a] = mech[3].cool[a] = 2;
+    mech_outfit(&mech[2], CH_MACHINE, ARM_NEEDLER, ARM_PLASMA); // each mech can be built differently
+    mech_outfit(&mech[3], CH_BIO, ARM_SPORE, ARM_NEEDLER);
+    mech_outfit(&mech[4], CH_BIO, ARM_NEEDLER, ARM_SPORE);       // the spare is a living one
     nmech = 5 + horde;
     for (int i = 5; i < nmech; i++) { // test crowd: enemy patrols scattered ahead, 130 to 600 m out
         float a = frands() * 1.3f, r = 130 + frand() * 470;
         mech_init(&mech[i], V3(sinf(a) * r, 0, -cosf(a) * r), frand() * 6.28f, 1);
         mech[i].throttle = 2.6f + frand();
         mech[i].aiTurn = frands() * 0.15f;
-        mech[i].aiFire = 2;
+        mech[i].cool[0] = mech[i].cool[1] = 2;
+        mech_outfit(&mech[i], i & 1, (i * 7) % ARM_COUNT, (i * 3 + 1) % ARM_COUNT);
     }
     // Small enemies: three turrets far out, crawler packs and drone flights between you and the patrols.
     static const struct { int kind, n; float x, z; } GROUP[] = {
@@ -399,6 +418,7 @@ void game_init(int demo, int startOnFoot) {
     pl.fade = 1;
     pl.fadeDir = -1;
     pl.pendingBoard = -1;
+    pl.graft = -1;
     pl.calib = XF(V3(0, 1.7f, 0), qid());
     if (once) { pl.calib = keepCalib; pl.footLift = keepLift; pl.wornTime = keepWorn; pl.fitted = keepFit; } // a restart keeps your seat fit
     once = 1;
@@ -408,7 +428,7 @@ void game_init(int demo, int startOnFoot) {
     for (int i = 0; i < demo * 8; i++) { // demo damage for screenshots: synthetic shots at the practice target
         Mech *m = &mech[1];
         int want = i % 3 == 0 ? P_ARM_R : i % 3 == 1 ? P_ARM_L : P_TORSO;
-        v3 ro = V3(frands() * 3, 5 + frands() * 2, -30), tgt = vadd(xfpt(m->world[want], shapes[partShape[want]].boxC), rv(0.5f));
+        v3 ro = V3(frands() * 3, 5 + frands() * 2, -30), tgt = vadd(xfpt(m->world[want], shapes[mech_shape(m, want)].boxC), rv(0.5f));
         v3 rd = vnorm(vsub(tgt, ro)), l;
         float t;
         int part;
@@ -488,6 +508,7 @@ static Hit trace(v3 ro, v3 rd, float tmax, int skip) {
     return h;
 }
 
+#define SPORE_FALL 18.0f // how fast a lobbed spore drops, m/s2
 static void fire_bolt(int owner, int kind, v3 p, v3 dir, float speed, float dmg) {
     for (int i = 0; i < MAXBOLT; i++)
         if (!bolt[i].active) {
@@ -496,18 +517,88 @@ static void fire_bolt(int owner, int kind, v3 p, v3 dir, float speed, float dmg)
         }
 }
 // Fires one of a mech's arm weapons at a point. arm 0: twin autocannon, arm 1: plasma pod.
+// A spore bursts where it lands and hurts whatever is close.
+static void spore_burst(v3 p, int owner) {
+    spawn(PT_FLASH, p, V3(0, 0, 0), 0.12f, 2.4f, 0, 0, 0);
+    ichor(p, UP, 16);
+    for (int i = 0; i < 4; i++) smoke(p, 0.9f);
+    audio_play(SND_HIT, p, 0.9f);
+    for (int k = 0; k < nmech; k++) {
+        Mech *m = &mech[k];
+        v3 c = xfpt(m->world[P_TORSO], V3(0, 1, 0));
+        float d = vlen(vsub(c, p));
+        if (k == owner || !m->alive || d > 6) continue;
+        int part = p.y < m->world[P_PELVIS].p.y ? P_THIGH_L + 3 * (int)(frand() * 1.99f) : P_TORSO;
+        apply_hit(m, part, shapes[mech_shape(m, part)].boxC, vadd(c, vmul(vsub(p, c), 0.5f)), vnorm(vsub(c, p)), 12 * (1 - d / 6));
+    }
+    for (int k = 0; k < nbot; k++)
+        if (bot[k].alive && owner != BOT_OWNER + k && vlen(vsub(bot_xf(&bot[k]).p, p)) < 4.5f)
+            bot_hit(&bot[k], 1, V3(0, 0, 0), bot_xf(&bot[k]).p, UP, 12);
+}
+
+// Fires one of a mech's arms at a point. What comes out depends on the kind of arm mounted there.
 static int mech_fire(int idx, int arm, v3 target, float spread) {
     Mech *m = &mech[idx];
     if (m->gone[P_ARM_L + arm]) return 0;
-    v3 mz = pnt[arm ? PNT_ARM_R_MUZZLE : PNT_ARM_L_MUZZLE];
-    if (!arm) mz.x += (pl.barrel++ & 1) ? 0.2f : -0.2f;
+    const ArmType *t = &armType[m->arm[arm]];
+    v3 mz = mech_muzzle(m, arm);
+    if (m->arm[arm] == ARM_CANNON) mz.x += (pl.barrel++ & 1) ? 0.2f : -0.2f; // its two barrels take turns
     v3 muzzle = xfpt(m->world[P_ARM_L + arm], mz);
     v3 to = vsub(target, muzzle);
-    v3 dir = vnorm(vadd(to, rv(spread * vlen(to))));
-    fire_bolt(idx, arm, muzzle, dir, arm ? 120 : 230, arm ? 34 : 6);
-    spawn(PT_FLASH, vadd(muzzle, vmul(dir, 0.3f)), V3(0, 0, 0), arm ? 0.12f : 0.07f, arm ? 1.5f : 0.8f, 0, 0, 0);
-    audio_play(arm ? SND_PLASMA : SND_CANNON, muzzle, arm ? 0.9f : 0.55f);
+    float len = vlen(to);
+    if (t->bolt == 3) { // lobbed: aim above the target so the arc comes down on it
+        float flat = sqrtf(to.x * to.x + to.z * to.z);
+        to.y += flat * tanf(0.5f * asinf(clampf(SPORE_FALL * flat / (t->speed * t->speed), 0, 1)));
+    }
+    for (int k = 0; k < t->shots; k++) {
+        v3 fan = t->shots > 1 ? vmul(qrot(m->world[P_TORSO].q, V3(1, 0, 0)), (k - (t->shots - 1) * 0.5f) * 0.035f * len) : V3(0, 0, 0);
+        v3 dir = vnorm(vadd(vadd(to, fan), rv(spread * len)));
+        fire_bolt(idx, t->bolt, muzzle, dir, t->speed, t->dmg);
+    }
+    v3 fwd = vnorm(to);
+    spawn(PT_FLASH, vadd(muzzle, vmul(fwd, 0.3f)), V3(0, 0, 0), t->dmg > 20 ? 0.12f : 0.07f, t->dmg > 20 ? 1.5f : 0.8f, 0, 0, 0);
+    if (shapes[t->shape].bio) ichor(muzzle, fwd, 3);
+    audio_play(t->snd, muzzle, t->dmg > 20 ? 0.9f : 0.55f);
     return 1;
+}
+
+// From the cockpit: stand over an arm lying on the ground and take it. It goes on an empty shoulder if you
+// have one, otherwise it replaces the arm on the side it lies, and that arm drops in its place.
+static void graft_update(const Input *in, Mech *m) {
+    float best = 9;
+    pl.graft = -1;
+    for (int i = 0; i < MAXDEB; i++) {
+        float dx = deb[i].x.p.x - m->pos.x, dz = deb[i].x.p.z - m->pos.z, d = sqrtf(dx * dx + dz * dz);
+        if (deb[i].active && deb[i].arm && deb[i].rest && d < best) { best = d; pl.graft = i; }
+    }
+    if (pl.graft < 0 || !in->boardKey) return;
+    Debris *d = &deb[pl.graft];
+    v3 right = qrot(qaxis(UP, m->yaw + m->torsoYaw), V3(1, 0, 0));
+    int side = vdot(vsub(d->x.p, m->pos), right) > 0;
+    if (m->gone[P_ARM_L] != m->gone[P_ARM_R]) side = m->gone[P_ARM_R];
+    int part = P_ARM_L + side, kind = d->arm - 1, n = d->ndent;
+    float dent[8][4];
+    memcpy(dent, d->dent, sizeof dent);
+    d->active = 0;
+    if (!m->gone[part]) detach(m, part, vadd(vmul(right, side ? 5.0f : -5.0f), V3(0, 3, 0)));
+    m->gone[part] = 0;
+    m->arm[side] = kind;
+    m->hp[part] = 70; // it has been through a fight already
+    m->stage[part] = 0;
+    m->ndent[part] = n; // and still shows it
+    memcpy(m->dent[part], dent, sizeof dent);
+    memset(m->heat[part], 0, sizeof m->heat[part]);
+    m->flash[part] = 1;
+    m->cool[side] = 0.6f;
+    m->burst[side] = 0;
+    mech_pose(m, 0);
+    v3 at = m->world[part].p;
+    if (shapes[armType[kind].shape].bio) ichor(at, UP, 14);
+    else sparks(at, UP, 14, 6, 0.06f);
+    audio_play(SND_CLICK, at, 1.5f);
+    audio_play(SND_WHOOSH, at, 0.8f);
+    hapL = hapR = 0.8f;
+    pl.graft = -1;
 }
 
 static void start_eject(void) {
@@ -553,12 +644,14 @@ static void enemy_ai(int idx, float dt, v3 tgt, int tgtOnFoot) {
     m->aimPitch = approach(m->aimPitch, clampf(atan2f(tgt.y - muzzleY, maxf(dist, 1)), -0.6f, 0.5f), dt);
     int aligned = fabsf(wrap(bearing - m->yaw - m->torsoYaw)) < 0.12f && dist < 230;
     float spread = tgtOnFoot ? 0.045f : 0.022f;
-    m->aiFire -= dt;
-    if (m->aiFire <= 0 && aligned) { m->aiBurst = 5; m->aiFire = 3.0f + 2.5f * frand(); }
-    m->cool[0] -= dt;
-    if (m->aiBurst > 0 && m->cool[0] <= 0) { mech_fire(idx, 0, tgt, spread); m->aiBurst--; m->cool[0] = 0.14f; }
-    m->cool[1] -= dt;
-    if (aligned && m->cool[1] <= 0 && dist < 170) { mech_fire(idx, 1, tgt, spread); m->cool[1] = 5.0f + 3.0f * frand(); }
+    for (int a = 0; a < 2; a++) { // each arm fires a short burst, then rests
+        const ArmType *t = &armType[m->arm[a]];
+        m->cool[a] -= dt;
+        if (m->cool[a] > 0 || !aligned || dist > t->range || m->gone[P_ARM_L + a]) continue;
+        mech_fire(idx, a, tgt, spread);
+        if (++m->burst[a] >= t->aiBurst) { m->burst[a] = 0; m->cool[a] = t->aiPause * (1 + 0.7f * frand()); }
+        else m->cool[a] = maxf(t->interval, 0.14f);
+    }
 }
 
 // Drones circle and strafe from the air, crawlers run you down on the ground, turrets hold a spot.
@@ -736,8 +829,8 @@ static void worm_update(float dt, v3 tgt, int onFoot) {
             if (pl.hp <= 0 && pl.mode == MODE_FOOT) { pl.dead = 1; pl.fadeDir = 1; }
         } else {
             Mech *m = &mech[pl.mech];
-            apply_hit(m, P_TORSO, shapes[S_TORSO].boxC, tgt, dir, 45);
-            if (m->alive) apply_hit(m, P_THIGH_L, shapes[S_THIGH].boxC, m->world[P_THIGH_L].p, dir, 30);
+            apply_hit(m, P_TORSO, shapes[mech_shape(m, P_TORSO)].boxC, tgt, dir, 45);
+            if (m->alive) apply_hit(m, P_THIGH_L, shapes[mech_shape(m, P_THIGH_L)].boxC, m->world[P_THIGH_L].p, dir, 30);
         }
     }
     w->chew -= dt;
@@ -747,7 +840,7 @@ static void worm_update(float dt, v3 tgt, int onFoot) {
     for (int i = 0; i < nmech; i++) {
         Mech *m = &mech[i];
         if (!m->alive || (pl.mode == MODE_PILOT && i == pl.mech) || vlen(vsub(xfpt(m->world[P_TORSO], V3(0, 1.3f, 0)), maw)) > 7) continue;
-        apply_hit(m, P_TORSO, shapes[S_TORSO].boxC, m->world[P_TORSO].p, dir, 55);
+        apply_hit(m, P_TORSO, shapes[mech_shape(m, P_TORSO)].boxC, m->world[P_TORSO].p, dir, 55);
         w->chew = 0.8f;
     }
 }
@@ -801,12 +894,17 @@ static void update_pilot(const Input *in, float dt) {
     Hit h = trace(src.p, dir, 600, pl.mech);
     pl.aimDist = h.t;
     pl.aim = vadd(src.p, vmul(dir, h.t));
-    v3 to = vsub(pl.aim, xfpt(m->world[P_TORSO], pnt[PNT_TORSO_AIM]));
+    v3 to = vsub(pl.aim, xfpt(m->world[P_TORSO], mech_point(m, MP_AIM)));
     m->aimPitch = approach(m->aimPitch, clampf(atan2f(to.y, sqrtf(to.x * to.x + to.z * to.z)), -0.6f, 0.6f), dt * 2.5f);
     m->cool[0] -= dt;
     m->cool[1] -= dt;
-    if (in->hand[0].trigger > 0.5f && m->cool[0] <= 0) { if (mech_fire(pl.mech, 0, pl.aim, 0.004f)) hapL = 0.35f; m->cool[0] = 0.11f; }
-    if (in->hand[1].trigger > 0.5f && m->cool[1] <= 0) { if (mech_fire(pl.mech, 1, pl.aim, 0.002f)) hapR = 1.0f; m->cool[1] = 0.85f; }
+    for (int a = 0; a < 2; a++) { // left trigger fires the left arm, right trigger the right, whatever is mounted there
+        const ArmType *t = &armType[m->arm[a]];
+        if (in->hand[a].trigger <= 0.5f || m->cool[a] > 0) continue;
+        if (mech_fire(pl.mech, a, pl.aim, t->spread)) { if (a) hapR = t->dmg > 20 ? 1.0f : 0.35f; else hapL = t->dmg > 20 ? 1.0f : 0.35f; }
+        m->cool[a] = t->interval;
+    }
+    graft_update(in, m);
     pl.alarm = m->stage[P_TORSO] >= 2 || limp ? 1.0f : (m->stage[P_TORSO] == 1 ? 0.3f : 0);
     if (m->stage[P_TORSO] >= 2 && frand() < dt * 5) { // a critical reactor fills the cabin with smoke wisps
         spawn(PT_SMOKE, xfpt(anchor, V3(frands() * 0.5f, -0.5f, -0.75f)), V3(0, 0.25f, 0), 1.2f, 0.035f, 0.03f, 0.1f, 0.5f);
@@ -876,6 +974,7 @@ void game_update(const Input *in) {
         if (pl.pendingBoard >= 0) {
             pl.mech = pl.pendingBoard;
             pl.pendingBoard = -1;
+    pl.graft = -1;
             pl.mode = MODE_PILOT;
             pl.throttle = pl.stickX = 0;
             pl.bob = mech[pl.mech].hipH;
@@ -958,16 +1057,18 @@ void game_update(const Input *in) {
     for (int i = 0; i < MAXBOLT; i++) {
         Bolt *b = &bolt[i];
         if (!b->active) continue;
+        if (b->kind == 3) b->v.y -= SPORE_FALL * dt;
         float step = vlen(b->v) * dt;
         v3 dir = vnorm(b->v);
         Hit h = trace(b->p, dir, step, b->owner);
+        if (b->kind == 3 && h.t < step) spore_burst(vadd(b->p, vmul(dir, h.t)), b->owner);
         v3 end = vadd(b->p, vmul(dir, h.t));
         if (b->owner >= 0 && pl.mode != MODE_PILOT && !pl.fly && !pl.dead) { // enemy fire against you on foot
             v3 c = vadd(rigNow.p, V3(0, 0.9f, 0)), oc = vsub(c, b->p);
             float along = clampf(vdot(oc, dir), 0, h.t);
             float miss = vlen(vsub(oc, vmul(dir, along)));
             int kb = b->owner >= BOT_OWNER ? bot[b->owner - BOT_OWNER].kind : -1; // small enemies have their own damage on foot
-            float direct = kb >= 0 ? BOT[kb].foot : b->dmg * 1.2f, reach = kb >= 0 ? BOT[kb].splash : b->kind == 1 ? 3.5f : 0;
+            float direct = kb >= 0 ? BOT[kb].foot : b->dmg * 1.2f, reach = kb >= 0 ? BOT[kb].splash : b->kind == 1 ? 3.5f : b->kind == 3 ? 4.5f : 0;
             float splash = (h.ground || h.rock) && reach > 0 ? vlen(vsub(end, c)) : 99;
             if (miss < 0.6f || splash < reach) {
                 pl.hp -= miss < 0.6f ? direct : direct * 0.5f;
@@ -1147,24 +1248,24 @@ void game_scene(Scene *s, const Input *in) {
     for (int i = 0; i < nmech; i++) {
         Mech *m = &mech[i];
         if (!m->alive) continue;
-        // Far away and in one piece: two flat cards instead of ten traced parts. The switch distance differs a
+        // Far away: a few flat cards instead of ten traced parts. The switch distance differs a
         // little going out and coming back, so a mech hovering at the limit does not flicker between the two.
         float dist = vlen(vsub(m->pos, s->head));
-        int whole = 1;
-        for (int p = 0; p < P_COUNT; p++) whole &= !m->gone[p];
-        m->far = game_cards && whole && s->nimp + 2 <= MAX_DRAW_IMP && dist > (m->far ? IMP_DIST - 8 : IMP_DIST + 8);
+        m->far = game_cards && s->nimp + 4 <= MAX_DRAW_IMP && dist > (m->far ? IMP_DIST - 8 : IMP_DIST + 8);
         if (m->far) {
-            for (int layer = 0; layer < 2; layer++) {
+            static const int CARD[4] = {P_PELVIS, P_TORSO, P_ARM_L, P_ARM_R}; // legs, torso, and each arm it still has
+            for (int c = 0; c < 4; c++) {
+                if (m->gone[CARD[c]]) continue;
                 DrawImp *d = &s->imp[s->nimp++];
-                d->pos = m->world[layer ? P_TORSO : P_PELVIS].p;
-                d->yaw = m->yaw + (layer ? m->torsoYaw : 0);
-                d->layer = layer;
-                d->row = layer ? 0 : mech_imp_row(m);
+                d->pos = m->world[CARD[c]].p;
+                d->yaw = m->yaw + (c ? m->torsoYaw : 0);
+                d->layer = mech_card_layer(m, c);
+                d->row = c ? 0 : mech_imp_row(m);
+                d->flip = mech_flip(m, CARD[c]);
                 d->tintA = TINT[m->team][0];
                 d->tintB = TINT[m->team][1];
-                d->flash = 0;
-                for (int p = 0; p < P_COUNT; p++)
-                    if ((p == P_TORSO || p == P_ARM_L || p == P_ARM_R) == layer) d->flash = maxf(d->flash, m->flash[p]);
+                d->flash = m->flash[CARD[c]];
+                for (int p = P_THIGH_L; p < P_COUNT && !c; p++) d->flash = maxf(d->flash, m->flash[p]);
             }
             if (dist < 260) {
                 shadow(s, xfpt(m->world[P_TORSO], V3(0, 1.3f, 0)), 2.6f);
@@ -1173,7 +1274,9 @@ void game_scene(Scene *s, const Input *in) {
         }
         for (int p = 0; p < P_COUNT && !m->far; p++) {
             if (m->gone[p] || (piloting && i == pl.mech && p == P_TORSO)) continue; // you sit inside your own hull
-            DrawPart *d = push(s, partShape[p], m->world[p], m->team);
+            DrawPart *d = push(s, mech_shape(m, p), m->world[p], m->team);
+            d->flip = mech_flip(m, p);
+            if (p == P_TORSO && d->shape->bio && dist < 90) d->scale = 1 + 0.012f * sinf(gtime * 1.7f + m->seed); // it breathes
             d->stage = m->stage[p];
             d->ndent = m->ndent[p];
             memcpy(d->dent, m->dent[p], sizeof d->dent);
@@ -1241,6 +1344,11 @@ void game_scene(Scene *s, const Input *in) {
         if (!b->active) continue;
         DrawPart *d = push(s, b->shape, b->x, b->team);
         d->scale = b->scale;
+        d->flip = b->flip;
+        if (piloting && b->arm && b->rest && vlen(vsub(b->x.p, s->head)) < 150) { // a marker over arms you could take
+            float reach = i == pl.graft ? 0.5f + 0.1f * sinf(gtime * 8) : 0.25f;
+            push(s, S_BEACON, XF(vadd(b->x.p, V3(0, 2 + 5 * reach, 0)), qid()), 0)->scale = reach;
+        }
         d->stage = 3;
         d->ndent = b->ndent;
         memcpy(d->dent, b->dent, sizeof d->dent);
@@ -1254,7 +1362,7 @@ void game_scene(Scene *s, const Input *in) {
         if (vlen(vsub(rocks[i].pos, s->head)) < 120) shadow(s, vadd(rocks[i].pos, V3(0, rocks[i].radius * 0.5f, 0)), rocks[i].radius * 0.8f);
     }
     for (int i = 0; i < MAXBOLT; i++)
-        if (bolt[i].active) push(s, bolt[i].kind == 2 ? S_SPIT : bolt[i].kind ? S_BOLT : S_TRACER, XF(bolt[i].p, qlook(vnorm(bolt[i].v))), 0);
+        if (bolt[i].active) push(s, bolt[i].kind == 2 ? S_SPIT : bolt[i].kind == 3 ? S_GLOB : bolt[i].kind == 4 ? S_NEEDLE : bolt[i].kind ? S_BOLT : S_TRACER, XF(bolt[i].p, qlook(vnorm(bolt[i].v))), 0);
 
     for (int i = 0; i < nptc && s->nptc < MAX_DRAW_PTC; i++) {
         const Particle *q = &ptc[i];
@@ -1266,6 +1374,9 @@ void game_report(void) { // one line for test runs: how the fight is going
     int kind[3] = {0, 0, 0}, mechs = 0;
     for (int i = 0; i < nbot; i++) kind[bot[i].kind] += bot[i].alive;
     for (int i = 0; i < nmech; i++) mechs += mech[i].alive && mech[i].team == 1;
+    static const char *const ARM[ARM_COUNT] = {"cannon", "plasma", "needler", "spore"};
+    const Mech *me = &mech[pl.mech];
+    printf("report: arms %s / %s; ", me->gone[P_ARM_L] ? "none" : ARM[me->arm[0]], me->gone[P_ARM_R] ? "none" : ARM[me->arm[1]]);
     printf("report: %s, your mech torso %.0f of 160, you %.0f of 100, restarts %d; left: %d enemy mechs, %d drones, %d crawlers, %d turrets, worm %.0f of 900 (head at %.0f %.0f %.0f, heading %.2f)\n",
            pl.mode == MODE_PILOT ? "piloting" : "on foot", mech[0].alive ? mech[0].hp[P_TORSO] : 0, pl.hp, deaths, mechs, kind[0], kind[1], kind[2], worm.alive ? worm.hp : 0, worm.p.x, worm.p.y, worm.p.z, worm.yaw);
 }

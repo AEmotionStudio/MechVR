@@ -10,7 +10,7 @@ SH(particle_vert) SH(particle_frag) SH(final_frag) SH(imp_vert) SH(imp_frag)
 static GLuint pSky, pTerrain, pPart, pPartX, pPtc, pFinal, pImp;
 static GLuint pCur; // the build of the part shader in use: pPart, or pPartX for cones and enlarged shapes
 typedef struct { int rows, cw, ch; float width, y0, height, texel; GLuint fbo, col, nrm, depth; } ImpLayer;
-static ImpLayer imps[2];
+static ImpLayer imps[IMP_LAYERS];
 static GLuint vaoEmpty, vaoCube, vaoGrid, vaoPtc, vboPtc, texHeight, dstFbo;
 static int gridIndexCount;
 
@@ -147,9 +147,12 @@ static void rot3(quat q, float *o) {
     memcpy(o, m, sizeof m);
 }
 
-static void part_shape(const Shape *sp, xf world, m4 vp, float scale) {
+static void part_shape(const Shape *sp, xf world, m4 vp, float scale, int flip) {
     m4 model = m4xf(world);
-    for (int i = 0; i < 12; i++) model.m[i] *= scale;
+    for (int i = 0; i < 12; i++) model.m[i] *= i < 4 && flip ? -scale : scale;
+    glFrontFace(flip ? GL_CW : GL_CCW); // a mirrored box is wound the other way round
+    glUniform1i(U(pCur, "uBio"), sp->bio);
+    if (pCur == pPartX) glUniform1f(U(pCur, "uFlip"), flip ? -1.0f : 1.0f);
     m4 mvp = m4mul(vp, model);
     if (pCur == pPartX) glUniform1f(U(pCur, "uScale"), scale);
     float r[9];
@@ -265,13 +268,14 @@ void render_imp_bake(int layer, int row, const Shape *const *shape, const xf *x,
                 v3 rd = qrot(qconj(x[i].q), V3(-s, 0, -c));
                 GLuint p = shape[i]->cone ? pPartX : pPart;
                 if (p != pCur) bake_use(p, eps);
-                part_shape(shape[i], x[i], vp, 1);
+                part_shape(shape[i], x[i], vp, 1, 0);
                 glUniform3f(U(pCur, "uBakeDir"), rd.x, rd.y, rd.z);
                 glUniform1f(U(pCur, "uSeed"), (float)i);
                 glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, 0);
             }
         }
     }
+    glFrontFace(GL_CCW);
     glUseProgram(pPart);
     glUniform1i(U(pPart, "uBake"), 0);
     glUseProgram(pPartX);
@@ -346,7 +350,7 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
         v3 c = vsub(d->world.p, cam);
         float scale = d->scale > 0 ? d->scale : 1;
         if (vdot(c, fwd) < -sp->radius * scale) continue; // behind the viewer
-        GLuint p = scale != 1 || sp->cone ? pPartX : pPart;
+        GLuint p = scale != 1 || sp->cone || d->flip ? pPartX : pPart;
         if (p != pCur) {
             pCur = p;
             if (ready[p == pPartX]) glUseProgram(p);
@@ -357,7 +361,8 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
             }
         }
         v3 ro = vmul(xfpt(xfinv(d->world), cam), 1 / scale);
-        part_shape(sp, d->world, vp, scale);
+        if (d->flip) ro.x = -ro.x;
+        part_shape(sp, d->world, vp, scale, d->flip);
         glUniform3f(U(pCur, "uRo"), ro.x, ro.y, ro.z);
         glUniform1i(U(pCur, "uDentN"), d->ndent);
         if (d->ndent) {
@@ -377,7 +382,8 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, 0);
     }
 
-    // distant mechs: one card for the legs and one for the torso, each showing the stored view nearest to this one
+    // distant mechs: cards for the legs, the torso and each arm, each showing the stored view nearest to this one
+    glFrontFace(GL_CCW);
     glDisable(GL_CULL_FACE);
     if (s->nimp) {
         common(pImp, s, pixAngle);
@@ -394,6 +400,7 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
             if (!L->fbo || vdot(vsub(d->pos, cam), fwd) < -L->width) continue;
             float len = sqrtf(to.x * to.x + to.z * to.z) + 1e-6f, cs = cosf(d->yaw), sn = sinf(d->yaw);
             float ang = atan2f(-to.x * cs + to.z * sn, -to.x * sn - to.z * cs); // direction to the viewer in the mech's frame
+            if (d->flip) ang = -ang; // a mirrored arm from the left looks like the stored arm from the right, reversed
             int k = (int)floorf(ang / (2 * PI) * IMP_YAWS + 0.5f) & (IMP_YAWS - 1);
             if (bound != d->layer) {
                 bound = d->layer;
@@ -411,6 +418,7 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
             glUniform3f(U(pImp, "uTintA"), d->tintA.x, d->tintA.y, d->tintA.z);
             glUniform3f(U(pImp, "uTintB"), d->tintB.x, d->tintB.y, d->tintB.z);
             glUniform1f(U(pImp, "uFlash"), d->flash);
+            glUniform1f(U(pImp, "uMirror"), (float)d->flip);
             int lod = 0; // the sheet size whose pixels are nearest to one screen pixel at this distance
             for (float px = vlen(to) * pixAngle / L->texel; px >= 2 && lod < IMP_LODS - 1; px *= 0.5f) lod++;
             glUniform1i(U(pImp, "uLod"), lod);

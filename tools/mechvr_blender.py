@@ -33,7 +33,7 @@ except ImportError:  # plain Python: only check / format work
 bl_info = {
     "name": "MechVR shapes",
     "author": "MechVR",
-    "version": (1, 2, 0),
+    "version": (1, 3, 0),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar > MechVR",
     "description": "Edit the MechVR game's shapes and write assets/shapes.txt",
@@ -42,13 +42,14 @@ bl_info = {
 
 KINDS = ["box", "cyl", "sphere", "capsule", "cone"]
 OPS = ["add", "sub", "smooth", "and"]
-MATS = ["armor", "armor2", "frame", "accent", "glass", "glow", "screen", "rock", "hazard", "seat", "glove", "plasma", "cabin"]
+MATS = ["armor", "armor2", "frame", "accent", "glass", "glow", "screen", "rock", "hazard", "seat", "glove", "plasma", "cabin",
+        "flesh", "bone", "sac"]
 MAX_PIECES = 16
 COLORS = {  # roughly what the game paints each material (armor and armor2 take the team colours there)
     "armor": (0.44, 0.52, 0.30), "armor2": (0.84, 0.80, 0.66), "frame": (0.19, 0.20, 0.25), "accent": (0.95, 0.44, 0.10),
     "glass": (0.13, 0.36, 0.45), "glow": (1.0, 0.85, 0.35), "screen": (0.10, 0.55, 0.45), "rock": (0.62, 0.42, 0.30),
     "hazard": (0.95, 0.75, 0.10), "seat": (0.30, 0.27, 0.26), "glove": (0.93, 0.87, 0.70), "plasma": (0.35, 0.90, 1.0),
-    "cabin": (0.46, 0.50, 0.52),
+    "cabin": (0.46, 0.50, 0.52), "flesh": (0.44, 0.13, 0.17), "bone": (0.86, 0.80, 0.66), "sac": (0.55, 0.95, 0.35),
 }
 HEADER = """# MechVR shapes. Edit by hand, or in Blender with tools/mechvr_blender.py (it reads and writes this file).
 # Units are metres, +Y up, -Z forward, +X right. Up to 16 pieces per shape; later pieces act on what came before.
@@ -60,7 +61,8 @@ HEADER = """# MechVR shapes. Edit by hand, or in Blender with tools/mechvr_blend
 #   kind:      box, cyl (axis Y; half-size = radius, half-height, radius), sphere, capsule (radius, half-length, radius),
 #              cone (a capsule with two radii: radius at the -Y end, half-length, radius at the +Y end)
 #   op k:      add 0, sub 0 (cut away), smooth K (blend over K metres), and 0 (keep only the overlap)
-#   material:  armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin
+#   material:  armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin flesh bone sac
+#              (armor and armor2 take the team's colours; flesh, bone and sac make a living part, whose wounds show meat)
 """
 
 
@@ -426,8 +428,14 @@ if bpy:
         else:
             clear_shapes()
         for n, s in enumerate(shapes):
-            if s["name"] in made:
-                s["on"] = ""  # already in the scene: keep it as it is
+            if s["name"] in made:  # already in the scene: keep it as it is, but give it any points it lacks
+                e = made[s["name"]]
+                have = {o.name.split(".", 1)[-1].upper() for o in points_of(e)}
+                for i, q in enumerate(s["points"]):
+                    if q["name"] not in have:
+                        new_point(e, q["name"], swap(q["p"]), q["note"], 100 + i)
+                        added += 1
+                s["on"] = ""
                 continue
             added += 1
             e = made[s["name"]] = new_shape(scene, s["name"], swap(s["at"]), s["note"], n)
@@ -508,6 +516,12 @@ if bpy:
         except OSError:
             old = []
         kept = [s["name"] for s in old if s["name"] not in mine]
+        for s in old:  # the same for points: one the file has and the scene's shape lacks is kept
+            have = mine.get(s["name"])
+            lost = [q for q in s["points"] if have and all(q["name"] != r["name"] for r in have["points"])]
+            if lost:
+                have["points"] += lost
+                problems.append(f"kept {s['name']}'s points that are not in this scene: {', '.join(q['name'] for q in lost)}")
         merged = [mine.pop(s["name"], s) for s in old] + [s for s in shapes if s["name"] in mine]
         if kept:
             problems.append(f"kept {len(kept)} shapes that are in the file but not in this scene: {', '.join(kept)}")
@@ -541,7 +555,7 @@ if bpy:
             return self.execute(context)
 
     class MECHVR_OT_import_new(bpy.types.Operator):
-        """Add the shapes from the shapes file that this scene does not have yet. Nothing already in the scene changes"""
+        """Add the shapes and points from the shapes file that this scene does not have yet. Nothing already in the scene changes"""
         bl_idname = "mechvr.import_new"
         bl_label = "Read new shapes"
         bl_options = {"REGISTER", "UNDO"}
@@ -554,7 +568,7 @@ if bpy:
                 return {"CANCELLED"}
             for p in problems:
                 self.report({"WARNING"}, p)
-            self.report({"INFO"}, f"Added {n} new shapes")
+            self.report({"INFO"}, f"Added {n} new shapes and points")
             return {"FINISHED"}
 
     class MECHVR_OT_export(bpy.types.Operator):

@@ -13,9 +13,13 @@ uniform vec3 uOriginW;   // part origin in world space
 // shapes drawn enlarged (the sand worm); it is kept apart because those two features slow every traced pixel.
 #ifdef EXTRA
 uniform float uScale;    // the whole shape drawn this many times larger (uRo and uMVP already allow for it)
+uniform float uFlip;     // -1 = the shape drawn mirrored left to right (an arm made for the other side), otherwise 1
+#define FLIP(v) ((v) * vec3(uFlip, 1.0, 1.0))
 #else
 const float uScale = 1.0;
+#define FLIP(v) (v)
 #endif
+uniform int uBio;        // 1 = a living part: holes show flesh and bone instead of a metal frame
 uniform vec3 uBoxC, uBoxH;
 uniform vec4 uP[MAXP * 4];
 uniform int uCount;
@@ -156,8 +160,8 @@ void main() {
     vec3 n = normalAt(tex ? ps : p);
     float ao = clamp(1.0 - 1.6 * clamp(0.16 - map(p + n * 0.16), 0.0, 1.0) - 0.5 * clamp(0.45 - map(p + n * 0.45), 0.0, 1.0), 0.35, 1.0);
 
-    vec3 nw = uRot * n;
-    vec3 pw = uOriginW + uRot * p * uScale;
+    vec3 nw = uRot * FLIP(n);
+    vec3 pw = uOriginW + uRot * FLIP(p) * uScale;
     vec3 vw = normalize(uCamW - pw);
     float dither = tex ? (hash13(floor(p / texel) + uSeed) - 0.5) * (uInterior == 1 ? 0.03 : 0.09) : 0.0;
 
@@ -189,7 +193,17 @@ void main() {
     } else if (mi == 9) { base = vec3(0.22, 0.20, 0.21); }                                 // seat, rubber
     else if (mi == 10) { base = vec3(0.80, 0.74, 0.62); }                                  // glove
     else if (mi == 11) { base = vec3(0.35, 0.95, 1.0); emis = 1.0; }                       // plasma bolt
-    else {                                                                                 // exposed frame inside a hole
+    else if (mi == 13) {                                                                   // flesh: dark, wet, veined
+        base = vec3(0.60, 0.20, 0.24) * (0.80 + 0.40 * step(0.56, vnoise(ps * 2.6 + uSeed)));
+        specOn = 1.0; specPow = 18.0;
+    } else if (mi == 14) { base = vec3(0.86, 0.80, 0.66) * (0.93 + 0.14 * vnoise(ps * 5.0)); } // bone
+    else if (mi == 15) {                                                                   // glowing sac, slowly pulsing
+        base = vec3(0.55, 0.95, 0.35) * (0.72 + 0.28 * sin(uTime * 2.6 + uSeed * 3.0));
+        emis = 1.0;
+    } else if (uBio == 1) {                                                                // a wound: meat with pale ribs
+        float ribs = step(0.62, fract(ps.y * 3.0 + ps.x * 1.2 + ps.z));
+        base = mix(vec3(0.46, 0.07, 0.09), vec3(0.82, 0.74, 0.60), ribs);
+    } else {                                                                               // exposed frame inside a hole
         float ribs = step(0.5, fract(ps.y * 4.0 + ps.x * 1.5 + ps.z));
         base = mix(vec3(0.09, 0.08, 0.10), vec3(0.21, 0.19, 0.21), ribs);
     }

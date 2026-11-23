@@ -8,7 +8,8 @@
 #   kind:      box, cyl (axis Y; half-size = radius, half-height, radius), sphere, capsule (radius, half-length, radius),
 #              cone (a capsule with two radii: radius at the -Y end, half-length, radius at the +Y end)
 #   op k:      add 0, sub 0 (cut away), smooth K (blend over K metres), and 0 (keep only the overlap)
-#   material:  armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin
+#   material:  armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin flesh bone sac
+#              (armor and armor2 take the team's colours; flesh, bone and sac make a living part, whose wounds show meat)
 
 shape PELVIS at 0 4.55 0
 box     0 0 0                  1 0.42 0.78          0.16   0 0 0      add 0      armor2
@@ -19,6 +20,7 @@ cyl     0 0.5 0                0.72 0.18 0.72       0.04   0 0 0      add 0     
 shape TORSO at 0 0.68 0 on PELVIS   # origin: top of the turret ring
 point EYE 0 1.62 -0.55                # the pilot's eye; the cockpit (CK_SHELL) is drawn around it
 point AIM 0 1.6 0                     # the torso and arms turn to aim from here
+point SHOULDER -2.1 1.6 0.1           # where the left arm mounts; the right shoulder mirrors it. The arms' own positions are only for show
 box     0 1.25 0.1             1.55 1.05 1.45       0.24   0 0 0      add 0      armor
 box     0 2.62 -1.75           2 0.9 0.9            0      38 0 0     sub 0      armor   # sloped brow
 box     0 -0.05 -1.8           2 0.8 0.8            0      -42 0 0    sub 0      armor2  # undercut chin
@@ -34,7 +36,7 @@ box     1.55 1.2 0.35          0.12 0.42 0.6        0.02   0 0 0      sub 0     
 box     -1.55 1.2 0.35         0.12 0.42 0.6        0.02   0 0 0      sub 0      frame
 box     0 0.72 -1.33           0.9 0.09 0.06        0.02   0 0 0      add 0      accent  # stripe under the canopy
 
-shape ARM_L at -2.1 1.6 0.1 on TORSO   # twin autocannon. origin: shoulder joint
+shape ARM_L at -2.1 1.6 0.1 on TORSO   # twin autocannon, made as a left arm (drawn mirrored on a right shoulder). origin: shoulder joint
 point MUZZLE -0.35 -0.75 -3.2         # shots leave here, between the two barrels
 box     -0.35 0.25 0           0.5 0.55 0.75        0.2    0 0 0      add 0      armor
 box     -0.35 -0.5 -0.2        0.36 0.5 0.7         0.1    0 0 0      add 0      armor2
@@ -46,7 +48,7 @@ cyl     -0.15 -0.75 -3.05      0.18 0.12 0.18       0.03   90 0 0     add 0     
 cyl     -0.35 -0.3 0.62        0.4 0.3 0.4          0.05   0 0 -90    add 0      armor2
 box     -0.86 0.25 0           0.03 0.25 0.45       0.01   0 0 0      add 0      accent
 
-shape ARM_R at 2.1 1.6 0.1 on TORSO   # plasma pod. origin: shoulder joint
+shape ARM_R at 2.1 1.6 0.1 on TORSO   # plasma pod, made as a right arm (drawn mirrored on a left shoulder). origin: shoulder joint
 point MUZZLE 0.4 -0.7 -2              # plasma bolts leave here
 box     0.35 0.25 0            0.5 0.55 0.75        0.2    0 0 0      add 0      armor
 box     0.35 -0.5 -0.2         0.36 0.5 0.7         0.1    0 0 0      add 0      armor2
@@ -257,3 +259,80 @@ cone    0 0.2225 6.6834        0.55 1.5 0.06        0      81.47 0 0  add 0     
 cone    0 2.6919 0.446         0.45 0.55 0.08       0      26.57 0 0  add 0      frame   # spikes
 cone    -2.2746 1.3341 0.4341  0.4 0.5 0.08         0      45 0 48.53 add 0      frame
 cone    2.2746 1.3341 0.4341   0.4 0.5 0.08         0      45 0 -48.53 add 0      frame
+
+shape BIO_PELVIS at 18 4.55 0   # living body: hips. origin: between the hip joints
+box     0 0 0                  0.95 0.5 0.85        0.45   0 0 0      add 0      flesh   # hips
+box     0 0.28 0.1             0.85 0.3 0.9         0.28   0 0 0      smooth 0.3 armor   # back plate
+sphere  -1.2 0 0               0.5 0.5 0.5          0      0 0 0      add 0      bone    # hip joints
+sphere  1.2 0 0                0.5 0.5 0.5          0      0 0 0      add 0      bone
+cone    0 -0.3304 1.5439       0.5 1 0.1            0      70.71 -180 -180 add 0      flesh   # tail
+sphere  0 -0.45 -0.3           0.36 0.36 0.36       0      0 0 0      add 0      sac     # belly sac
+
+shape BIO_TORSO at 0 0.6 0 on BIO_PELVIS   # living body: torso. origin: the waist
+point EYE 0 1.55 -0.6                 # the pilot's eye when you ride it
+point AIM 0 1.6 0                     # the torso and arms turn to aim from here
+point SHOULDER -2.2 1.6 0.1           # where the left arm mounts; the right shoulder mirrors it
+box     0 1.2 0                1.3 1 1.25           0.75   0 0 0      add 0      flesh   # body
+box     0 1.8 0.35             1.45 0.72 1.2        0.6    0 0 0      smooth 0.35 armor   # shell
+capsule 0 1 -1.08              0.12 0.8 0.12        0      0 0 90     add 0      bone    # ribs
+capsule 0 0.6 -0.98            0.11 0.62 0.11       0      0 0 90     add 0      bone
+sphere  0 1.6 -1.25            0.55 0.55 0.55       0      0 0 0      smooth 0.3 armor2  # head
+sphere  0 1.58 -1.72           0.27 0.27 0.27       0      0 0 0      add 0      sac     # eyes
+sphere  -0.42 1.8 -1.52        0.14 0.14 0.14       0      0 0 0      add 0      sac
+sphere  0.42 1.8 -1.52         0.14 0.14 0.14       0      0 0 0      add 0      sac
+sphere  -1.75 1.6 0.1          0.55 0.55 0.55       0      0 0 0      add 0      bone    # shoulder sockets
+sphere  1.75 1.6 0.1           0.55 0.55 0.55       0      0 0 0      add 0      bone
+cone    0 2.9472 0.7462        0.3 0.6 0.06         0      24.23 0 0  add 0      bone    # back spines
+cone    -0.7591 2.6864 1.1682  0.26 0.5 0.05        0      26.57 0 12.6 add 0      bone
+cone    0.7591 2.6864 1.1682   0.26 0.5 0.05        0      26.57 0 -12.6 add 0      bone
+sphere  -1.25 0.9 0.6          0.32 0.32 0.32       0      0 0 0      add 0      sac     # side sacs
+sphere  1.25 0.9 0.6           0.32 0.32 0.32       0      0 0 0      add 0      sac
+
+shape BIO_THIGH at -1.3 0 0 on BIO_PELVIS   # living body: left thigh; mirrored for the right. origin: hip joint
+sphere  0 0 0                  0.5 0.5 0.5          0      0 0 0      add 0      bone    # hip
+cone    0 -0.95 0              0.55 0.75 0.32       0      0 180 180  add 0      flesh   # muscle
+box     0 -0.8 -0.36           0.42 0.6 0.2         0.15   0 0 0      add 0      armor   # plate
+sphere  0 -1.9 0               0.36 0.36 0.36       0      0 0 0      add 0      bone    # knee
+
+shape BIO_SHIN at 0 -1.9 0 on BIO_THIGH   # living body: shin. origin: knee
+cone    0 -1.05 0              0.34 0.95 0.2        0      0 180 180  add 0      flesh   # shin
+cone    0 0.0558 0.593         0.16 0.4 0.04        0      59.04 0 0  add 0      bone    # spur
+box     0 -1.1 -0.26           0.3 0.55 0.14        0.1    0 0 0      add 0      armor2  # plate
+sphere  0 -2.2 0               0.3 0.3 0.3          0      0 0 0      add 0      bone    # ankle
+
+shape BIO_FOOT at 0 -2.2 0 on BIO_SHIN   # living body: foot. origin: ankle
+point SOLE 0 -0.45 0                  # the height of the ground under the foot
+box     0 -0.25 -0.2           0.45 0.16 0.55       0.14   0 0 0      add 0      flesh   # pad
+cone    -0.3863 -0.333 -1.0919 0.17 0.45 0.04       0      -83.16 -180 -171.53 add 0      bone    # claws
+cone    0 -0.3396 -1.1964      0.17 0.5 0.04        0      -83.16 180 180 add 0      bone
+cone    0.3863 -0.333 -1.0919  0.17 0.45 0.04       0      -83.16 180 171.53 add 0      bone
+cone    0 -0.2919 0.6461       0.15 0.35 0.04       0      81.47 -180 -180 add 0      bone    # heel claw
+
+shape ARM_NEEDLER at 14 6.2 6   # living arm that fires fans of bone needles. Made as a left arm. origin: shoulder joint
+point MUZZLE -0.35 -0.7 -2.9          # needles leave here
+sphere  -0.3 0.1 0             0.6 0.6 0.6          0      0 0 0      add 0      flesh   # shoulder
+box     -0.4 0.38 0            0.5 0.33 0.7         0.28   0 0 0      smooth 0.25 armor   # shell
+cone    -0.35 -0.5483 -1.1889  0.44 1 0.27          0      -81.47 180 180 add 0      flesh   # forearm
+cone    -0.35 -0.55 -2.6       0.1 0.5 0.02         0      -90 0 0    add 0      bone    # needles
+cone    -0.5947 -0.8024 -2.4972 0.1 0.45 0.02        0      -87.14 -180 -174.3 add 0      bone
+cone    -0.1053 -0.8024 -2.4972 0.1 0.45 0.02        0      -87.14 180 174.3 add 0      bone
+box     -0.35 -0.7 -1.9        0.34 0.26 0.3        0.18   0 0 0      smooth 0.2 armor2  # quiver
+sphere  -0.35 -0.2 0.55        0.3 0.3 0.3          0      0 0 0      add 0      sac     # sac
+
+shape ARM_SPORE at 11 6.2 6   # living arm that lobs bursting spores. Made as a left arm. origin: shoulder joint
+point MUZZLE -0.4 -0.55 -2.15         # spores leave here
+sphere  -0.3 0.1 0             0.6 0.6 0.6          0      0 0 0      add 0      flesh   # shoulder
+sphere  -0.4 -0.5 -0.5         0.78 0.78 0.78       0      0 0 0      smooth 0.4 flesh   # bulb
+box     -0.4 0.3 -0.1          0.52 0.3 0.75        0.26   0 0 0      smooth 0.25 armor   # shell
+cyl     -0.4 -0.55 -1.5        0.46 0.6 0.46        0.2    90 0 0     add 0      armor2  # mouth
+cyl     -0.4 -0.55 -1.9        0.28 0.5 0.28        0.1    90 0 0     sub 0      flesh   # bore
+sphere  -0.4 -0.55 -1.25       0.3 0.3 0.3          0      0 0 0      add 0      sac     # spore in the bore
+sphere  -0.95 -0.2 -0.4        0.24 0.24 0.24       0      0 0 0      add 0      sac     # pods
+sphere  0.1 -0.15 -0.75        0.22 0.22 0.22       0      0 0 0      add 0      sac
+
+shape NEEDLE at 14 1 9   # a bone needle in flight; it points towards -Z
+cone    0 0 -0.05              0.07 0.5 0.012       0      -90 0 0    add 0      bone
+
+shape GLOB at 11 1 9   # a spore in flight
+sphere  0 0 0                  0.3 0.3 0.3          0      0 0 0      add 0      sac
+sphere  0.12 0.1 0.18          0.2 0.2 0.2          0      0 0 0      smooth 0.15 flesh

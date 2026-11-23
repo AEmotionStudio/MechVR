@@ -15,6 +15,7 @@ typedef struct {
     int on;        // that shape, or -1
     float scr[4];  // its screen piece, if it has one: center xy and 1/size
     int cone;      // it has cone pieces, which need the EXTRA build of the part shader
+    int bio;       // it has flesh, bone or sac pieces: a living part
 } Shape;
 
 typedef struct {
@@ -28,17 +29,19 @@ typedef struct {
     int interior; // lit by cabin light instead of the sun, no distance haze
     float aux[4], stat[12], scr[4];
     float scale; // draw the shape this many times larger; 0 means 1
+    int flip;    // draw it mirrored left to right (an arm made for the other side of the body)
 } DrawPart;
 
 typedef struct { float x, y, z, size, age, type, seed, spin; } DrawParticle;
 
-// A distant mech drawn as a flat card. layer 0 = hips and legs, 1 = torso and arms; row = which pose.
+// A distant mech drawn as flat cards: one for the legs, one for the torso, one per arm. layer = which sheet, row = which pose.
 #define IMP_YAWS 32 // views around the mech on the sheet
 #define IMP_LODS 4  // each sheet is kept at this many sizes, halving each time
-typedef struct { v3 pos; float yaw; int layer, row; v3 tintA, tintB; float flash; } DrawImp;
+#define IMP_LAYERS 16
+typedef struct { v3 pos; float yaw; int layer, row, flip; v3 tintA, tintB; float flash; } DrawImp; // flip: shown mirrored
 
 #define MAX_DRAW_PARTS 2048
-#define MAX_DRAW_IMP 256
+#define MAX_DRAW_IMP 600
 #define MAX_DRAW_PTC 4096
 #define MAX_SHADOW 48
 typedef struct {

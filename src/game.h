@@ -30,5 +30,6 @@ extern int game_cards;      // 1 = draw distant mechs as flat cards (default)
 void game_swarm(int n);     // call before game_init: add n extra drones and n extra crawlers for testing
 void game_report(void);     // print a one-line summary of the fight (for test runs)
 void game_worm(float dist); // call before game_init: how far ahead the sand worm lives (default 380 m); 0 = no worm
+void game_loadout(int body, int armL, int armR); // call before game_init: your mech's body (0 machine, 1 living) and arms (0 cannon, 1 plasma, 2 needler, 3 spore)
 void game_horde(int n);     // call before game_init: add n extra enemy mechs for testing
 #endif

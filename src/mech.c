@@ -1,4 +1,5 @@
 #include "mech.h"
+#include "audio.h"
 #include "world.h"
 #include <stdio.h>
 #include <string.h>
@@ -6,7 +7,36 @@
 
 Shape shapes[S_COUNT];
 v3 pnt[PNT_COUNT];
-const int partShape[P_COUNT] = {S_PELVIS, S_TORSO, S_ARM_L, S_ARM_R, S_THIGH, S_SHIN, S_FOOT, S_THIGH, S_SHIN, S_FOOT};
+// Bodies: the shapes for hips, torso, thigh, shin, foot, and the points on the torso and foot.
+static const unsigned char chassisShape[CH_COUNT][5] = {
+    {S_PELVIS, S_TORSO, S_THIGH, S_SHIN, S_FOOT}, {S_BIO_PELVIS, S_BIO_TORSO, S_BIO_THIGH, S_BIO_SHIN, S_BIO_FOOT}};
+static const unsigned char chassisPoint[CH_COUNT][4] = {
+    {PNT_TORSO_EYE, PNT_TORSO_AIM, PNT_TORSO_SHOULDER, PNT_FOOT_SOLE},
+    {PNT_BIO_TORSO_EYE, PNT_BIO_TORSO_AIM, PNT_BIO_TORSO_SHOULDER, PNT_BIO_FOOT_SOLE}};
+// Arms. bolt: 0 cannon round, 1 plasma, 3 spore (lobbed, bursts on landing), 4 bone needle.
+const ArmType armType[ARM_COUNT] = {
+    //  shape          muzzle                   side bolt shots snd      dmg speed interval spread range burst pause
+    {S_ARM_L,       PNT_ARM_L_MUZZLE,       0, 0, 1, SND_CANNON, 6,  230, 0.11f, 0.004f, 230, 5, 3.0f},
+    {S_ARM_R,       PNT_ARM_R_MUZZLE,       1, 1, 1, SND_PLASMA, 34, 120, 0.85f, 0.002f, 170, 1, 5.0f},
+    {S_ARM_NEEDLER, PNT_ARM_NEEDLER_MUZZLE, 0, 4, 3, SND_PISTOL, 7,  190, 0.50f, 0.030f, 200, 2, 3.0f},
+    {S_ARM_SPORE,   PNT_ARM_SPORE_MUZZLE,   0, 3, 1, SND_WHOOSH, 26, 55,  1.20f, 0.006f, 160, 1, 4.0f},
+};
+int mech_shape(const Mech *m, int part) {
+    static const unsigned char slot[P_COUNT] = {0, 1, 0, 0, 2, 3, 4, 2, 3, 4};
+    if (part == P_ARM_L || part == P_ARM_R) return armType[m->arm[part - P_ARM_L]].shape;
+    return chassisShape[m->chassis][slot[part]];
+}
+int mech_flip(const Mech *m, int part) {
+    return (part == P_ARM_L || part == P_ARM_R) && armType[m->arm[part - P_ARM_L]].side != part - P_ARM_L;
+}
+v3 mech_point(const Mech *m, int which) { return pnt[chassisPoint[m->chassis][which]]; }
+v3 mech_muzzle(const Mech *m, int arm) {
+    v3 p = pnt[armType[m->arm[arm]].muzzle];
+    return mech_flip(m, P_ARM_L + arm) ? V3(-p.x, p.y, p.z) : p;
+}
+int mech_card_layer(const Mech *m, int which) {
+    return which < 2 ? m->chassis * 2 + which : CH_COUNT * 2 + m->arm[which - 2];
+}
 
 enum { T_BOX, T_CYL, T_SPHERE, T_CAPSULE, T_CONE };
 
@@ -20,7 +50,8 @@ static const char pointNames[] = POINT_LIST(X);
 #undef X
 // What the game expects each attached shape to be attached to.
 static const unsigned char joints[][2] = {
-    {S_TORSO, S_PELVIS}, {S_ARM_L, S_TORSO}, {S_ARM_R, S_TORSO}, {S_THIGH, S_PELVIS}, {S_SHIN, S_THIGH}, {S_FOOT, S_SHIN},
+    {S_TORSO, S_PELVIS}, {S_THIGH, S_PELVIS}, {S_SHIN, S_THIGH}, {S_FOOT, S_SHIN},
+    {S_BIO_TORSO, S_BIO_PELVIS}, {S_BIO_THIGH, S_BIO_PELVIS}, {S_BIO_SHIN, S_BIO_THIGH}, {S_BIO_FOOT, S_BIO_SHIN},
     {S_CK_DASH, S_CK_SHELL}, {S_CK_SEAT, S_CK_SHELL}, {S_CK_SIDE_L, S_CK_SHELL}, {S_CK_SIDE_R, S_CK_SHELL},
     {S_CK_THROTTLE, S_CK_SHELL}, {S_CK_STICK, S_CK_SHELL}, {S_CK_EJECT, S_CK_SHELL},
     {S_CRAWLER_LEG, S_CRAWLER}, {S_TURRET_HEAD, S_TURRET_BASE},
@@ -41,10 +72,11 @@ static int word(const char *list, const char *w) { // position of w in a space-s
 
 static void finish(Shape *s) { // bounding box of everything that adds volume
     v3 lo = V3(1e9f, 1e9f, 1e9f), hi = V3(-1e9f, -1e9f, -1e9f);
-    s->cone = 0;
+    s->cone = s->bio = 0;
     for (int i = 0; i < s->count; i++) {
         const float *f = s->prim[i].f;
         if ((int)f[3] == T_CONE) s->cone = 1;
+        if ((int)f[14] >= 13) s->bio = 1;
         if (f[12] == 1 || f[12] == 3) continue;
         v3 e = V3(f[4], f[5], f[6]);
         if ((int)f[3] == T_CAPSULE) e.y += e.x;
@@ -97,7 +129,7 @@ static void shapes_parse(const char *t) {
         } else if (sscanf(buf, " %15s %f %f %f %f %f %f %f %f %f %f %15s %f %15s", kind, v, v + 1, v + 2, v + 3, v + 4, v + 5, v + 6, v + 7,
                           v + 8, v + 9, op, v + 10, mat) == 14) {
             int ty = word("box cyl sphere capsule cone", kind), o = word("add sub smooth and", op);
-            int m = word("armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin", mat);
+            int m = word("armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin flesh bone sac", mat);
             if (!cur) continue;
             if (ty < 0 || o < 0 || m < 0) { fprintf(stderr, "shapes: line %d: unknown %s\n", line, ty < 0 ? kind : o < 0 ? op : mat); continue; }
             if (cur->count == MAX_PRIMS) { fprintf(stderr, "shapes: line %d: more than %d pieces in one shape, skipped\n", line, MAX_PRIMS); continue; }
@@ -221,7 +253,17 @@ int mech_ray(const Mech *m, v3 ro, v3 rd, float tmax, float *tOut, int *part, v3
         if (m->gone[i]) continue;
         float t;
         v3 l;
-        if (shape_ray(&shapes[partShape[i]], m->world[i], ro, rd, tmax, m->dent[i], m->ndent[i], &t, &l)) {
+        xf x = m->world[i];
+        v3 o = ro, d = rd;
+        if (mech_flip(m, i)) { // a mirrored part: mirror the ray into the shape's own space instead
+            xf inv = xfinv(x);
+            o = xfpt(inv, ro);
+            d = qrot(inv.q, rd);
+            o.x = -o.x;
+            d.x = -d.x;
+            x = XF(V3(0, 0, 0), qid());
+        }
+        if (shape_ray(&shapes[mech_shape(m, i)], x, o, d, tmax, m->dent[i], m->ndent[i], &t, &l)) {
             tmax = t; *tOut = t; *part = i; *local = l; hit = 1;
         }
     }
@@ -238,6 +280,14 @@ void mech_init(Mech *m, v3 pos, float yaw, int team) {
     m->seed = frand() * 40;
     m->phase = frand() * 6;
     for (int i = 0; i < P_COUNT; i++) m->hp[i] = i == P_TORSO ? 160 : 100;
+    m->arm[0] = ARM_CANNON;
+    m->arm[1] = ARM_PLASMA;
+    mech_pose(m, 0);
+}
+void mech_outfit(Mech *m, int chassis, int armL, int armR) {
+    m->chassis = chassis;
+    m->arm[0] = armL;
+    m->arm[1] = armR;
     mech_pose(m, 0);
 }
 
@@ -245,7 +295,9 @@ void mech_pose(Mech *m, float dt) {
     const float D = PI / 180;
     float amp = clampf(fabsf(m->speed) / 2.5f, 0, 1);
     m->phase += dt * m->speed * (2 * PI / 6.5f); // one full cycle covers 6.5 m
-    const v3 X = V3(1, 0, 0), hip = shapes[S_THIGH].at, knee = shapes[S_SHIN].at, ankle = shapes[S_FOOT].at;
+    const unsigned char *cs = chassisShape[m->chassis];
+    const v3 X = V3(1, 0, 0), hip = shapes[cs[2]].at, knee = shapes[cs[3]].at, ankle = shapes[cs[4]].at;
+    const v3 sole = mech_point(m, MP_SOLE), sh = mech_point(m, MP_SHOULDER);
     float a1[2], a2[2], low = 1e9f;
     xf leg[2][3]; // thigh, shin and foot of each leg, measured from the hips
     for (int s = 0; s < 2; s++) {
@@ -255,17 +307,17 @@ void mech_pose(Mech *m, float dt) {
         leg[s][0] = XF(V3(s ? -hip.x : hip.x, hip.y, hip.z), qaxis(X, a1[s])); // the right leg mirrors the left
         leg[s][1] = xfmul(leg[s][0], XF(knee, qaxis(X, a2[s])));
         leg[s][2] = xfmul(leg[s][1], XF(ankle, qaxis(X, -(a1[s] + a2[s]))));
-        low = minf(low, xfpt(leg[s][2], pnt[PNT_FOOT_SOLE]).y);
+        low = minf(low, xfpt(leg[s][2], sole).y);
     }
     m->hipH = -low; // the lower sole rests on the ground
     m->pos.y = world_height(m->pos.x, m->pos.z);
     xf root = XF(V3(m->pos.x, m->pos.y + m->hipH, m->pos.z),
                  qmul(qaxis(V3(0, 1, 0), m->yaw), qaxis(V3(0, 0, 1), 0.03f * amp * sinf(m->phase))));
     m->world[P_PELVIS] = root;
-    xf torso = xfmul(root, XF(shapes[S_TORSO].at, qmul(qaxis(V3(0, 1, 0), m->torsoYaw), qaxis(V3(0, 0, 1), -0.02f * amp * sinf(m->phase)))));
+    xf torso = xfmul(root, XF(shapes[cs[1]].at, qmul(qaxis(V3(0, 1, 0), m->torsoYaw), qaxis(V3(0, 0, 1), -0.02f * amp * sinf(m->phase)))));
     m->world[P_TORSO] = torso;
-    m->world[P_ARM_L] = xfmul(torso, XF(shapes[S_ARM_L].at, qaxis(X, m->aimPitch + 0.03f * amp * cosf(m->phase))));
-    m->world[P_ARM_R] = xfmul(torso, XF(shapes[S_ARM_R].at, qaxis(X, m->aimPitch - 0.03f * amp * cosf(m->phase))));
+    m->world[P_ARM_L] = xfmul(torso, XF(sh, qaxis(X, m->aimPitch + 0.03f * amp * cosf(m->phase))));
+    m->world[P_ARM_R] = xfmul(torso, XF(V3(-sh.x, sh.y, sh.z), qaxis(X, m->aimPitch - 0.03f * amp * cosf(m->phase)))); // the right shoulder mirrors the left
     for (int s = 0; s < 2; s++)
         for (int k = 0; k < 3; k++) m->world[(s ? P_THIGH_R : P_THIGH_L) + k] = xfmul(root, leg[s][k]);
 }
@@ -286,30 +338,39 @@ void mech_impostors_bake(void) {
     static const unsigned char LEGS[7] = {P_PELVIS, P_THIGH_L, P_SHIN_L, P_FOOT_L, P_THIGH_R, P_SHIN_R, P_FOOT_R};
     const float texel = 0.1f; // metres per pixel on the largest sheet: a little finer than one screen pixel at IMP_DIST
     static xf pose[IMP_PHASES + 1][7];
-    const Shape *sh[7];
-    float rad = 0, lo = 0, hi = 0;
-    for (int r = 0; r <= IMP_PHASES; r++) { // walk cycle poses, then standing still
-        Mech m;
-        memset(&m, 0, sizeof m);
-        m.phase = r * 2 * PI / IMP_PHASES;
-        m.speed = r < IMP_PHASES ? 2.5f : 0;
-        mech_pose(&m, 0);
-        xf inv = xfinv(m.world[P_PELVIS]);
-        for (int k = 0; k < 7; k++) {
-            sh[k] = &shapes[partShape[LEGS[k]]];
-            pose[r][k] = xfmul(inv, m.world[LEGS[k]]);
-            grow(sh[k], pose[r][k], &rad, &lo, &hi);
+    const xf here = XF(V3(0, 0, 0), qid());
+    for (int c = 0; c < CH_COUNT; c++) { // each body: a sheet of leg poses and a sheet for the torso
+        const Shape *sh[7];
+        float rad = 0, lo = 0, hi = 0;
+        for (int r = 0; r <= IMP_PHASES; r++) { // walk cycle poses, then standing still
+            Mech m;
+            memset(&m, 0, sizeof m);
+            m.chassis = c;
+            m.phase = r * 2 * PI / IMP_PHASES;
+            m.speed = r < IMP_PHASES ? 2.5f : 0;
+            mech_pose(&m, 0);
+            xf inv = xfinv(m.world[P_PELVIS]);
+            for (int k = 0; k < 7; k++) {
+                sh[k] = &shapes[mech_shape(&m, LEGS[k])];
+                pose[r][k] = xfmul(inv, m.world[LEGS[k]]);
+                grow(sh[k], pose[r][k], &rad, &lo, &hi);
+            }
         }
+        render_imp_layout(c * 2, IMP_PHASES + 1, 2 * rad + 0.2f, lo - 0.1f, hi - lo + 0.2f, texel);
+        for (int r = 0; r <= IMP_PHASES; r++) render_imp_bake(c * 2, r, sh, pose[r], 7);
+        const Shape *torso = &shapes[chassisShape[c][1]];
+        rad = lo = hi = 0;
+        grow(torso, here, &rad, &lo, &hi);
+        render_imp_layout(c * 2 + 1, 1, 2 * rad + 0.2f, lo - 0.1f, hi - lo + 0.2f, texel);
+        render_imp_bake(c * 2 + 1, 0, &torso, &here, 1);
     }
-    render_imp_layout(0, IMP_PHASES + 1, 2 * rad + 0.2f, lo - 0.1f, hi - lo + 0.2f, texel);
-    for (int r = 0; r <= IMP_PHASES; r++) render_imp_bake(0, r, sh, pose[r], 7);
-
-    xf up[3] = {XF(V3(0, 0, 0), qid()), XF(shapes[S_ARM_L].at, qid()), XF(shapes[S_ARM_R].at, qid())};
-    const Shape *us[3] = {&shapes[S_TORSO], &shapes[S_ARM_L], &shapes[S_ARM_R]};
-    rad = lo = hi = 0;
-    for (int k = 0; k < 3; k++) grow(us[k], up[k], &rad, &lo, &hi);
-    render_imp_layout(1, 1, 2 * rad + 0.2f, lo - 0.1f, hi - lo + 0.2f, texel);
-    render_imp_bake(1, 0, us, up, 3);
+    for (int t = 0; t < ARM_COUNT; t++) { // each kind of arm: one sheet, shown mirrored on the other side
+        const Shape *arm = &shapes[armType[t].shape];
+        float rad = 0, lo = 0, hi = 0;
+        grow(arm, here, &rad, &lo, &hi);
+        render_imp_layout(CH_COUNT * 2 + t, 1, 2 * rad + 0.2f, lo - 0.1f, hi - lo + 0.2f, texel);
+        render_imp_bake(CH_COUNT * 2 + t, 0, &arm, &here, 1);
+    }
 }
 
 int mech_imp_row(const Mech *m) {

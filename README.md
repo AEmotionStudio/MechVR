@@ -57,6 +57,27 @@ Needs gcc, make, python3, glslangValidator, and the development files for OpenXR
 | Restart | R |
 | Quit | Esc |
 
+## Bodies, arms and grafting
+
+A mech is a body plus whatever arm is mounted on each shoulder. Any arm fits either side of either body; an arm made for the other side is drawn mirrored.
+
+| Body | |
+|---|---|
+| Machine | The original steel mech |
+| Living | A clawed, tailed creature with a shell, back spines and glowing sacs. Its torso breathes, its wounds show meat and bone, and it sheds ichor instead of sparks |
+
+| Arm | Fires | Notes |
+|---|---|---|
+| Cannon | Fast light rounds | Twin barrels, about 55 damage a second |
+| Plasma | One heavy bolt every 0.85 s | 34 damage a hit |
+| Needler (living) | A fan of three bone needles every half second | 7 damage each; good against small, quick targets |
+| Spore (living) | A lobbed spore every 1.2 s | 26 damage on a direct hit, and it bursts where it lands, hurting anything within 6 m. It drops as it flies, so it can go over cover |
+
+- Left trigger fires whatever is on the left shoulder, right trigger the right.
+- **Grafting:** shoot an arm off any mech and it lies on the ground. From your cockpit, a thin light marks arms you could take; walk your mech up to one (within 9 m, the light grows and pulses) and press **A** (window: **E**). It goes onto an empty shoulder if you have one; otherwise it replaces the arm on the side it lies, and your old arm drops in its place, so you can swap back. A grafted arm keeps its battle damage and comes with 70 of 100 armour.
+- The spare mech behind you is a living one. One patrol is a machine with a needler and plasma, the other is living with a spore arm and a needler.
+- Try a build directly: `./mechvr --build 1 2 3` (body 0 machine or 1 living, then left and right arm: 0 cannon, 1 plasma, 2 needler, 3 spore).
+
 ## What is in the world
 
 - Your mech (olive), a practice target that never shoots back (red, straight ahead), two red patrols that attack when you get within about 120 m or shoot them, and a spare blue mech behind you to the left.
@@ -65,14 +86,14 @@ Needs gcc, make, python3, glslangValidator, and the development files for OpenXR
 - **Turrets** (3, far out): fixed guns with a heavy shell every 2.6 seconds out to 220 m. They take about seven plasma hits. The shells are slow, so keep moving.
 - Hitting one of a group wakes the rest of it. Small enemies show holes where they are hit and smoke when badly damaged.
 - **The sand worm** lives about 380 m ahead and is about 70 m long. Under the sand it shows as a moving mound with dust and thumps; every several seconds it breaches in a long arc. It hunts you once you come within 220 m or shoot it: either an arc that comes down where you were standing when it launched, or straight up from underneath if you let it get within 14 m. A bite costs a mech 45 torso and 30 leg armour, and a person on foot 75 of 100 health, so keep moving. It has 900 health; shots into its open mouth count three times. It also eats crawlers and bites enemy mechs that get in its way.
-- Each mech part has four damage stages: intact, damaged, critical (trails smoke), destroyed. Arms fall off and take their weapon with them. Losing the torso, hips or a leg destroys the mech.
+- Each mech part has four damage stages: intact, damaged, critical (trails smoke), destroyed. Arms fall off and take their weapon with them; a fallen arm can be grafted onto your own mech. Losing the torso, hips or a leg destroys the mech.
 - If you eject from a mech whose torso is critical, its reactor explodes a couple of seconds later.
 
 ## Distant mechs
 
-A mech more than about 110 m away is drawn as two flat cards that face you (legs, and torso with arms) instead of ten traced parts. The pictures on the cards are drawn at startup from the same shapes, so they cost no file size and follow any edit to `assets/shapes.txt`: 32 directions around the mech, 16 walk poses plus standing, each kept at four sizes for different distances. The cards store surface colour, normal and depth, so they are lit, tinted per team, hazed and outlined like the real thing.
+A mech more than about 110 m away is drawn as up to four flat cards that face you (legs, torso, and one for each arm it still has) instead of ten traced parts. The pictures on the cards are drawn at startup from the same shapes, so they cost no file size and follow any edit to `assets/shapes.txt`: 32 directions around the mech, 16 walk poses plus standing, each kept at four sizes for different distances. The cards store surface colour, normal and depth, so they are lit, tinted per team, hazed and outlined like the real thing.
 
-- A mech that has lost a part is always traced, so missing arms show at any distance. Holes and scorch marks only show once a mech is traced.
+- Each body and each kind of arm has its own sheet, so any combination works as cards and a missing arm shows at any distance. Holes and scorch marks only show once a mech is traced.
 - On a card the torso turns separately from the legs, but the arms do not tilt up or down.
 - With 120 extra mechs in view, both eyes take about 6.9 ms with cards and 9.3 ms without (6.4 ms with no extra mechs). `screenshots/cards-vs-traced.png` shows the same view both ways.
 - Try it: `./mechvr --flat --horde 120 --calm`, and add `--nocards` to compare.
@@ -90,13 +111,14 @@ Every shape the game draws (mech parts, cockpit, rocks, hands, pistol) is listed
 How shapes work in Blender:
 
 - A shape is an Empty named like the shape (`TORSO`, `ARM_L`, `CK_SEAT`). Its pieces are the meshes parented to it. Move, rotate and scale pieces with the normal tools; they are measured from their Empty.
-- **Joints:** a shape Empty parented to another shape Empty is attached to it, and its position is the joint. Move the `ARM_L` Empty and the shoulder moves; move `SHIN` and the knee moves (the thigh's pieces stay where they are, so lengthen those too). Moving `PELVIS` moves the whole mech in the scene and changes nothing in the game.
+- **Joints:** a shape Empty parented to another shape Empty is attached to it, and its position is the joint. Move `SHIN` and the knee moves (the thigh's pieces stay where they are, so lengthen those too). Arms are different, because any arm can go on any body: they mount at the torso's `SHOULDER` point (the left shoulder; the right mirrors it), and where an arm's own Empty sits is only for show. Moving `PELVIS` moves the whole mech in the scene and changes nothing in the game.
 - **Legs:** only the left leg is in the scene (`THIGH`, `SHIN`, `FOOT`, shown straight). The game mirrors it for the right leg and bends both for the walk.
-- **Points:** the small labelled spheres are named points the game looks up: `ARM_L.MUZZLE` and `ARM_R.MUZZLE` (where shots leave), `TORSO.EYE` (the pilot's eye), `TORSO.AIM`, `FOOT.SOLE` (ground level under the foot), and `GRIP` on the throttle and stick (where the hand closes).
+- **Points:** the small labelled spheres are named points the game looks up: `MUZZLE` on each arm (where shots leave), and on each body's torso and foot: `EYE` (the pilot's eye), `AIM`, `SHOULDER` (where arms mount) and `SOLE` (ground level under the foot), and `GRIP` on the throttle and stick (where the hand closes).
 - **Cockpit:** the cabin is its own group, shown beside the mech. `CK_SHELL`'s origin is the pilot's eye, and the game places it at `TORSO.EYE`. Move the `CK_THROTTLE`, `CK_STICK`, `CK_EJECT`, `CK_SEAT` or `CK_DASH` Empty to move that control in the cabin. The damage diagram is drawn on the dashboard piece with the `screen` material.
 - The mech stands Z up and faces the front view (-Y). Its left side is on +X.
+- **Bodies and arms:** the machine body is `PELVIS`, `TORSO`, `THIGH`, `SHIN`, `FOOT`; the living one is the same five with `BIO_` in front. The arms are `ARM_L` (cannon), `ARM_R` (plasma), `ARM_NEEDLER` and `ARM_SPORE`. Model every new arm as a left arm, hanging from its origin at the shoulder.
 - Pieces apply in name order (`TORSO.00`, `TORSO.01` ...). A cutter removes material from every piece before it, not from pieces after it. Rename a piece to move it in the order, then press **Refresh preview**.
-- The panel sets what a piece does (add, cut, blend, overlap), its corner rounding and its material. The game picks the colours: `armor` and `armor2` take the team colours.
+- The panel sets what a piece does (add, cut, blend, overlap), its corner rounding and its material. The game picks the colours: `armor` and `armor2` take the team colours. `flesh`, `bone` and `sac` make a living part.
 - A shape can have at most 16 pieces. Pieces are boxes, cylinders, spheres, capsules and cones (a capsule with a different radius at each end, for teeth, spikes and tapering limbs).
 - Blender shows a close stand-in. Soft blends between pieces only show in the game.
 - The game draws the shapes and reads the points it knows by name, and expects each part on a fixed parent; it prints a line at startup for anything missing or unknown. New shapes and points are added to `SHAPE_LIST` and `POINT_LIST` in `src/mech.h` and then used from the game code. The walk cycle (stride, leg angles) and weapon behaviour are still code.
@@ -120,13 +142,14 @@ With the Flatpak Blender, write `flatpak run org.blender.Blender` for `blender` 
 --head yaw pitch        head direction for the picture (radians)
 --cam x y z yaw pitch   free camera position for the picture
 --demo n                pre-damage the practice target (higher = more damage)
---auto 1..4             scripted input: 1 advance and fire, 2 eject, 3 board, 4 walk into the patrols
+--auto 1..5             scripted input: 1 advance and fire, 2 eject, 3 board, 4 walk into the patrols, 5 advance and graft any arm in reach
 --bench                 render two headset-sized views per frame and print timings. With --shot or --bench the
                         program ends with a one-line report: your health and how many enemies are left
 --shapes file           read shapes from this file instead of the built-in copy, and again whenever it changes
 --horde n               add n extra enemy mechs (up to 128), scattered 130 to 600 m ahead
 --swarm n               add n extra drones and n extra crawlers (up to 64 each), scattered 80 to 400 m ahead
 --worm metres           how far ahead the sand worm lives (default 380); 0 removes it
+--build body armL armR  what your mech starts as (see "Bodies, arms and grafting")
 --calm                  enemies keep patrolling and never attack
 --calm-mechs            enemy mechs never attack, the small enemies still do
 --nocards               trace every mech at any distance instead of drawing far ones as cards

@@ -32,6 +32,10 @@ void main() {
     } else if (type == 5) { // aiming reticle: ring and center dot
         if (!(abs(r - 0.72) < 0.1 || r < 0.14 || (abs(vUV.x) < 0.05 && abs(vUV.y) > 0.5) || (abs(vUV.y) < 0.05 && abs(vUV.x) > 0.5)) || r > 1.0) discard;
         col = vec3(0.45, 1.0, 0.85);
+    } else if (type == 6) { // ichor: what a living part sheds when it is hit
+        float shape = 1.0 - r - n * 0.5 - age * 0.9;
+        if (shape < 0.0) discard;
+        col = shape > 0.3 ? vec3(0.62, 0.95, 0.30) : vec3(0.28, 0.55, 0.16);
     } else { // dust
         float shape = 1.0 - r - n * 0.6 - age * 0.8;
         if (shape < 0.0) discard;
