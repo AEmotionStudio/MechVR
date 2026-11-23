@@ -34,6 +34,14 @@ v3 mech_muzzle(const Mech *m, int arm) {
     v3 p = pnt[armType[m->arm[arm]].muzzle];
     return mech_flip(m, P_ARM_L + arm) ? V3(-p.x, p.y, p.z) : p;
 }
+static const signed char cockpitShape[CH_COUNT][CKP_COUNT] = {
+    {S_CK_SHELL, S_CK_DASH, S_CK_SEAT, S_CK_SIDE_L, S_CK_SIDE_R, S_CK_THROTTLE, S_CK_STICK, S_CK_EJECT, S_CK_STRUTS, S_CK_DIALS, -1},
+    {S_CKB_SHELL, S_CKB_DASH, S_CKB_SEAT, S_CKB_SIDE_L, S_CKB_SIDE_R, S_CKB_THROTTLE, S_CKB_STICK, S_CKB_EJECT, S_CKB_RIBS, S_CKB_DIALS, S_CKB_TEETH}};
+int mech_cockpit(const Mech *m, int piece) { return cockpitShape[m->chassis][piece]; }
+v3 mech_grip(const Mech *m, int stick) {
+    static const unsigned char grip[CH_COUNT][2] = {{PNT_CK_THROTTLE_GRIP, PNT_CK_STICK_GRIP}, {PNT_CKB_THROTTLE_GRIP, PNT_CKB_STICK_GRIP}};
+    return pnt[grip[m->chassis][stick]];
+}
 int mech_card_layer(const Mech *m, int which) {
     return which < 2 ? m->chassis * 2 + which : CH_COUNT * 2 + m->arm[which - 2];
 }
@@ -55,6 +63,9 @@ static const unsigned char joints[][2] = {
     {S_CK_DASH, S_CK_SHELL}, {S_CK_SEAT, S_CK_SHELL}, {S_CK_SIDE_L, S_CK_SHELL}, {S_CK_SIDE_R, S_CK_SHELL},
     {S_CK_THROTTLE, S_CK_SHELL}, {S_CK_STICK, S_CK_SHELL}, {S_CK_EJECT, S_CK_SHELL},
     {S_CRAWLER_LEG, S_CRAWLER}, {S_TURRET_HEAD, S_TURRET_BASE},
+    {S_CKB_DASH, S_CKB_SHELL}, {S_CKB_SEAT, S_CKB_SHELL}, {S_CKB_SIDE_L, S_CKB_SHELL}, {S_CKB_SIDE_R, S_CKB_SHELL},
+    {S_CKB_THROTTLE, S_CKB_SHELL}, {S_CKB_STICK, S_CKB_SHELL}, {S_CKB_EJECT, S_CKB_SHELL}, {S_CKB_TEETH, S_CKB_SHELL},
+    {S_CKB_RIBS, S_CKB_SHELL}, {S_CK_STRUTS, S_CK_SHELL}, {S_CK_DIALS, S_CK_SHELL}, {S_CKB_DIALS, S_CKB_SHELL},
 };
 static const char *livePath;
 static long long liveStamp;

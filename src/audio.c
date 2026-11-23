@@ -13,7 +13,8 @@ static snd_pcm_t *pcm;
 static volatile int running;
 static v3 earPos, earRight = {1, 0, 0};
 static float engTarget, engPitch, alarmOn; // set by the game
-static float eng, engPh, engLp, alarmT, windLp;
+static float eng, engPh, engLp, alarmT, windLp, beatT;
+static int living; // set by the game: the cockpit loop is a heartbeat instead of a reactor hum
 static unsigned rng = 22222;
 
 static float noise(void) {
@@ -76,6 +77,13 @@ static void *mix_thread(void *arg) {
             float saw = (engPh * 2 - 1) * 0.6f + sinf(TAU * engPh * 0.5f) * 0.8f + noise() * 0.12f;
             engLp += (saw - engLp) * (0.02f + 0.03f * engPitch);
             float mono = engLp * eng * (0.26f + 0.12f * engPitch);
+            if (living) { // a double thump that quickens as it runs, over slow breathing
+                float period = 1 / (1.0f + 0.9f * engPitch), dub = beatT - 0.28f * period;
+                beatT += dt;
+                if (beatT > period) beatT -= period;
+                float thump = sinf(TAU * 52 * beatT) * expf(-beatT * 22) + (dub > 0 ? sinf(TAU * 44 * dub) * expf(-dub * 26) * 0.7f : 0);
+                mono = (thump * 0.8f + engLp * (0.5f + 0.5f * sinf(TAU * 0.22f * alarmT)) * 0.35f) * eng;
+            }
             alarmT += dt;
             if (alarmOn > 0.5f && fmodf(alarmT, 0.5f) < 0.22f) mono += (sinf(TAU * (fmodf(alarmT, 1.0f) < 0.5f ? 880 : 660) * alarmT) > 0 ? 0.05f : -0.05f);
             windLp += (noise() - windLp) * 0.012f;
@@ -120,6 +128,7 @@ void audio_play(int type, v3 pos, float gain) {
     voice[slot] = (Voice){type, 1, 0, g * (0.6f - 0.4f * pan), g * (0.6f + 0.4f * pan), 0, 0};
     pthread_mutex_unlock(&lock);
 }
+void audio_body(int isLiving) { living = isLiving; }
 void audio_listener(v3 pos, v3 right, float engine, float pitch, float alarm) {
     earPos = pos; earRight = right; engTarget = engine; engPitch = pitch; alarmOn = alarm;
 }

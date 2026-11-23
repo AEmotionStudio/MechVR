@@ -6,5 +6,6 @@ enum { SND_CANNON, SND_PLASMA, SND_PISTOL, SND_HIT, SND_BOOM, SND_STEP, SND_WHOO
 void audio_init(void);
 void audio_shutdown(void);
 void audio_play(int type, v3 pos, float gain);                                  // a sound at a place in the world
+void audio_body(int living);                                                    // what you are riding: 0 a machine (reactor hum), 1 a living mech (heartbeat and breath)
 void audio_listener(v3 pos, v3 right, float engine, float pitch, float alarm);  // where your ears are, plus cockpit loops
 #endif

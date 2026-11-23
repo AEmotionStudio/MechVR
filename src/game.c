@@ -614,7 +614,7 @@ static void start_eject(void) {
     m->piloted = 0;
     m->throttle = 0;
     if (m->stage[P_TORSO] >= 2) m->cook = 2.4f; // a crippled reactor goes up shortly after you leave
-    add_debris(S_CK_SHELL, a, m->team, vadd(V3(0, 9, 0), vmul(yawFwd(m->yaw), 3)));
+    add_debris(mech_cockpit(m, CKP_SHELL), a, m->team, vadd(V3(0, 9, 0), vmul(yawFwd(m->yaw), 3)));
     for (int i = 0; i < 8; i++) smoke(vadd(a.p, rv(0.8f)), 0.6f);
     sparks(a.p, UP, 16, 6, 0.05f);
     audio_play(SND_WHOOSH, a.p, 1.2f);
@@ -856,17 +856,17 @@ static void update_pilot(const Input *in, float dt) {
         v3 hp = xfpt(inv, xfpt(rigNow, in->hand[h].grip.p));
         int sq = in->hand[h].squeeze > 0.5f && in->hand[h].tracked;
         if (sq && !pl.sqPrev[h] && !pl.grab[h]) {
-            v3 thr = vadd(shapes[S_CK_THROTTLE].at, qrot(qaxis(V3(1, 0, 0), -pl.throttle * 0.6f), pnt[PNT_CK_THROTTLE_GRIP]));
-            v3 stk = vadd(shapes[S_CK_STICK].at, pnt[PNT_CK_STICK_GRIP]);
+            v3 thr = vadd(shapes[mech_cockpit(m, CKP_THROTTLE)].at, qrot(qaxis(V3(1, 0, 0), -pl.throttle * 0.6f), mech_grip(m, 0)));
+            v3 stk = vadd(shapes[mech_cockpit(m, CKP_STICK)].at, mech_grip(m, 1));
             if (vlen(vsub(hp, thr)) < 0.14f) pl.grab[h] = GRAB_THROTTLE;
             else if (vlen(vsub(hp, stk)) < 0.14f) pl.grab[h] = GRAB_STICK;
-            else if (vlen(vsub(hp, shapes[S_CK_EJECT].at)) < 0.15f) pl.grab[h] = GRAB_EJECT;
+            else if (vlen(vsub(hp, shapes[mech_cockpit(m, CKP_EJECT)].at)) < 0.15f) pl.grab[h] = GRAB_EJECT;
             if (pl.grab[h]) { pl.grabStart[h] = hp; audio_play(SND_CLICK, xfpt(rigNow, in->hand[h].grip.p), 1.0f); if (h) hapR = 0.6f; else hapL = 0.6f; }
         }
         if (!sq) { if (pl.grab[h] == GRAB_EJECT) pl.ejectPull = 0; pl.grab[h] = GRAB_NONE; }
         pl.sqPrev[h] = sq;
         if (pl.grab[h] == GRAB_THROTTLE) {
-            v3 d = vsub(hp, shapes[S_CK_THROTTLE].at);
+            v3 d = vsub(hp, shapes[mech_cockpit(m, CKP_THROTTLE)].at);
             pl.throttle = clampf(atan2f(-d.z, maxf(d.y, 0.02f)) / 0.6f, -0.4f, 1.0f);
             thrIn = 0;
         } else if (pl.grab[h] == GRAB_STICK) {
@@ -1120,7 +1120,7 @@ void game_update(const Input *in) {
             }
         }
         d->emit -= dt;
-        if (d->emit <= 0 && d->age < 40 && d->shape != S_CK_SHELL) { // wrecks burn for a while, then just smoke
+        if (d->emit <= 0 && d->age < 40 && d->shape != S_CK_SHELL && d->shape != S_CKB_SHELL) { // wrecks burn for a while, then just smoke
             int big = d->radius > 2.0f; // torso, hips and arms burn; small pieces only flicker briefly
             d->emit = big ? 0.11f : 0.3f;
             v3 c = xfpt(d->x, shapes[d->shape].boxC);
@@ -1237,6 +1237,7 @@ void game_scene(Scene *s, const Input *in) {
     s->head = xfpt(rig, in->head.p);
     {
         float sp = pl.mode == MODE_PILOT ? fabsf(mech[pl.mech].speed) / TOP_SPEED : 0;
+        audio_body(mech[pl.mech].chassis == CH_BIO); // a living mech has a heartbeat where a machine has a reactor hum
         audio_listener(s->head, qrot(qmul(rig.q, in->head.q), V3(1, 0, 0)), pl.mode == MODE_PILOT ? 1.0f : 0.0f, sp, pl.mode == MODE_PILOT ? pl.alarm : 0);
     }
     s->vignette = in->vr && pl.mode == MODE_EJECT ? 0.7f : 0; // edge darkening only during the eject flight
@@ -1300,27 +1301,28 @@ void game_scene(Scene *s, const Input *in) {
     if (piloting) {
         Mech *m = &mech[pl.mech];
         xf a = cockpit_anchor(m);
-        push_cabin(s, S_CK_SHELL, a, m->team);
-        DrawPart *dash = push_cabin(s, S_CK_DASH, cabin_at(a, S_CK_DASH), m->team);
-        memcpy(dash->scr, shapes[S_CK_DASH].scr, sizeof dash->scr);
+        const int ckThr = mech_cockpit(m, CKP_THROTTLE), ckStk = mech_cockpit(m, CKP_STICK), ckEj = mech_cockpit(m, CKP_EJECT);
+        push_cabin(s, mech_cockpit(m, CKP_SHELL), a, m->team);
+        DrawPart *dash = push_cabin(s, mech_cockpit(m, CKP_DASH), cabin_at(a, mech_cockpit(m, CKP_DASH)), m->team);
+        memcpy(dash->scr, shapes[mech_cockpit(m, CKP_DASH)].scr, sizeof dash->scr);
         for (int p = 0; p < P_COUNT; p++) dash->stat[p] = m->gone[p] ? 3 : (float)m->stage[p];
         dash->aux[0] = m->speed / TOP_SPEED;
         dash->aux[2] = pl.alarm;
         dash->aux[3] = clampf(m->hp[P_TORSO] / 160.0f, 0, 1);
-        push_cabin(s, S_CK_SEAT, cabin_at(a, S_CK_SEAT), m->team);
-        push_cabin(s, S_CK_SIDE_L, cabin_at(a, S_CK_SIDE_L), m->team);
-        push_cabin(s, S_CK_SIDE_R, cabin_at(a, S_CK_SIDE_R), m->team);
-        xf thr = xfmul(a, XF(shapes[S_CK_THROTTLE].at, qaxis(V3(1, 0, 0), -pl.throttle * 0.6f)));
-        xf stk = xfmul(a, XF(shapes[S_CK_STICK].at, qmul(qaxis(V3(0, 0, 1), -pl.stickX * 0.35f), qaxis(V3(1, 0, 0), -pl.stickY * 0.35f))));
-        xf ej = xfmul(a, XF(vadd(shapes[S_CK_EJECT].at, V3(0, -pl.ejectPull, 0)), qid()));
-        push_cabin(s, S_CK_THROTTLE, thr, m->team);
-        push_cabin(s, S_CK_STICK, stk, m->team);
-        push_cabin(s, S_CK_EJECT, ej, m->team);
+        for (int k = CKP_SEAT; k <= CKP_SIDE_R; k++) push_cabin(s, mech_cockpit(m, k), cabin_at(a, mech_cockpit(m, k)), m->team)->seed = (float)k;
+        for (int k = CKP_TRIM; k <= CKP_TRIM3; k++)
+            if (mech_cockpit(m, k) >= 0) push_cabin(s, mech_cockpit(m, k), cabin_at(a, mech_cockpit(m, k)), m->team);
+        xf thr = xfmul(a, XF(shapes[ckThr].at, qaxis(V3(1, 0, 0), -pl.throttle * 0.6f)));
+        xf stk = xfmul(a, XF(shapes[ckStk].at, qmul(qaxis(V3(0, 0, 1), -pl.stickX * 0.35f), qaxis(V3(1, 0, 0), -pl.stickY * 0.35f))));
+        xf ej = xfmul(a, XF(vadd(shapes[ckEj].at, V3(0, -pl.ejectPull, 0)), qid()));
+        push_cabin(s, ckThr, thr, m->team);
+        push_cabin(s, ckStk, stk, m->team);
+        push_cabin(s, ckEj, ej, m->team);
         for (int h = 0; h < 2 && in->vr; h++) { // gloves; a hand holding a control is drawn on that control
             if (!in->hand[h].tracked) continue;
             xf g = hand_xf(rig, &in->hand[h]);
-            if (pl.grab[h] == GRAB_THROTTLE) g.p = xfpt(thr, pnt[PNT_CK_THROTTLE_GRIP]);
-            if (pl.grab[h] == GRAB_STICK) g.p = xfpt(stk, pnt[PNT_CK_STICK_GRIP]);
+            if (pl.grab[h] == GRAB_THROTTLE) g.p = xfpt(thr, mech_grip(m, 0));
+            if (pl.grab[h] == GRAB_STICK) g.p = xfpt(stk, mech_grip(m, 1));
             if (pl.grab[h] == GRAB_EJECT) g.p = ej.p;
             push_cabin(s, pl.grab[h] || in->hand[h].squeeze > 0.5f ? S_FIST : S_HAND, g, 0)->texel = 0.006f;
         }

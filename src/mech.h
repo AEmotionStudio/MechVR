@@ -11,7 +11,8 @@ enum { P_PELVIS, P_TORSO, P_ARM_L, P_ARM_R, P_THIGH_L, P_SHIN_L, P_FOOT_L, P_THI
     X(CK_SHELL) X(CK_DASH) X(CK_SEAT) X(CK_SIDE_L) X(CK_SIDE_R) X(CK_THROTTLE) X(CK_STICK) X(CK_EJECT) X(BEACON) X(TRACER) \
     X(DRONE) X(CRAWLER) X(CRAWLER_LEG) X(TURRET_BASE) X(TURRET_HEAD) X(SPIT) \
     X(WORM_HEAD) X(WORM_SEG) X(WORM_TAIL) \
-    X(BIO_PELVIS) X(BIO_TORSO) X(BIO_THIGH) X(BIO_SHIN) X(BIO_FOOT) X(ARM_NEEDLER) X(ARM_SPORE) X(NEEDLE) X(GLOB)
+    X(BIO_PELVIS) X(BIO_TORSO) X(BIO_THIGH) X(BIO_SHIN) X(BIO_FOOT) X(ARM_NEEDLER) X(ARM_SPORE) X(NEEDLE) X(GLOB) \
+    X(CKB_SHELL) X(CKB_DASH) X(CKB_SEAT) X(CKB_SIDE_L) X(CKB_SIDE_R) X(CKB_THROTTLE) X(CKB_STICK) X(CKB_EJECT) X(CKB_TEETH) X(CKB_RIBS) X(CK_STRUTS) X(CK_DIALS) X(CKB_DIALS)
 #define X(n) S_##n,
 enum { SHAPE_LIST(X) S_COUNT };
 #undef X
@@ -34,7 +35,7 @@ extern const ArmType armType[ARM_COUNT];
 #define POINT_LIST(X) \
     X(TORSO, EYE) X(TORSO, AIM) X(TORSO, SHOULDER) X(ARM_L, MUZZLE) X(ARM_R, MUZZLE) X(FOOT, SOLE) \
     X(BIO_TORSO, EYE) X(BIO_TORSO, AIM) X(BIO_TORSO, SHOULDER) X(BIO_FOOT, SOLE) X(ARM_NEEDLER, MUZZLE) X(ARM_SPORE, MUZZLE) \
-    X(CK_THROTTLE, GRIP) X(CK_STICK, GRIP) \
+    X(CK_THROTTLE, GRIP) X(CK_STICK, GRIP) X(CKB_THROTTLE, GRIP) X(CKB_STICK, GRIP) \
     X(DRONE, MUZZLE) X(CRAWLER, MUZZLE) X(CRAWLER, SOLE) X(TURRET_HEAD, MUZZLE) X(WORM_HEAD, MAW)
 #define X(s, n) PNT_##s##_##n,
 enum { POINT_LIST(X) PNT_COUNT };
@@ -43,7 +44,8 @@ extern v3 pnt[PNT_COUNT];
 // Joints are not listed here: a shape's "at" is where it attaches to the shape it is "on".
 // TORSO on PELVIS, THIGH on PELVIS (left hip; the right one is mirrored), SHIN on THIGH, FOOT on SHIN, and the
 // same for the BIO_ body. Arms mount at the torso's SHOULDER point (the left one; the right is mirrored).
-// The cockpit pieces are on CK_SHELL, whose origin is the pilot's eye (the torso's EYE point).
+// The cockpit pieces are on CK_SHELL, whose origin is the pilot's eye (the torso's EYE point). The living body
+// has its own cockpit, the CKB_ shapes, built the same way.
 // CRAWLER_LEG on CRAWLER (front left hip; the other three are mirrored), TURRET_HEAD on TURRET_BASE (the pivot).
 
 typedef struct {
@@ -84,6 +86,12 @@ v3 mech_point(const Mech *m, int which);                     // a named point on
 enum { MP_EYE, MP_AIM, MP_SHOULDER, MP_SOLE };
 v3 mech_muzzle(const Mech *m, int arm);                      // where arm 0 / 1 fires from, in that arm's space
 int mech_card_layer(const Mech *m, int which);               // which card sheet: 0 legs, 1 torso, 2 left arm, 3 right arm
+// The cockpit you sit in depends on the body. The TRIM pieces hold the thin and small things (struts, ribs, teeth,
+// the lights on the dashboard; -1 if none). They are separate shapes on purpose: a thin piece inside the shell slows the tracing
+// of every pixel that looks out past it, while in a shape of its own it only costs the pixels it covers.
+enum { CKP_SHELL, CKP_DASH, CKP_SEAT, CKP_SIDE_L, CKP_SIDE_R, CKP_THROTTLE, CKP_STICK, CKP_EJECT, CKP_TRIM, CKP_TRIM2, CKP_TRIM3, CKP_COUNT };
+int mech_cockpit(const Mech *m, int piece);                  // the shape of one cockpit piece
+v3 mech_grip(const Mech *m, int stick);                      // where the hand holds the throttle (0) or stick (1), in that control's space
 void mech_pose(Mech *m, float dt);
 // Ray against one shape placed at x. Returns 1 and the distance / hit point (in shape space) on a hit.
 int shape_ray(const Shape *s, xf x, v3 ro, v3 rd, float tmax, const float (*dent)[4], int ndent, float *t, v3 *local);
