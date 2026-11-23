@@ -33,14 +33,14 @@ except ImportError:  # plain Python: only check / format work
 bl_info = {
     "name": "MechVR shapes",
     "author": "MechVR",
-    "version": (1, 1, 0),
+    "version": (1, 2, 0),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar > MechVR",
     "description": "Edit the MechVR game's shapes and write assets/shapes.txt",
     "category": "Import-Export",
 }
 
-KINDS = ["box", "cyl", "sphere", "capsule"]
+KINDS = ["box", "cyl", "sphere", "capsule", "cone"]
 OPS = ["add", "sub", "smooth", "and"]
 MATS = ["armor", "armor2", "frame", "accent", "glass", "glow", "screen", "rock", "hazard", "seat", "glove", "plasma", "cabin"]
 MAX_PIECES = 16
@@ -57,7 +57,8 @@ HEADER = """# MechVR shapes. Edit by hand, or in Blender with tools/mechvr_blend
 #                                 Without 'on', 'at' is only where Blender shows the shape; the game ignores it.
 # point NAME X Y Z                a named spot on the shape that the game looks up (weapon muzzle, pilot's eye ...)
 # kind  centre x y z   half-size x y z   round   pitch yaw roll (degrees)   op k   material   # name
-#   kind:      box, cyl (axis Y; half-size = radius, half-height, radius), sphere, capsule (radius, half-length, radius)
+#   kind:      box, cyl (axis Y; half-size = radius, half-height, radius), sphere, capsule (radius, half-length, radius),
+#              cone (a capsule with two radii: radius at the -Y end, half-length, radius at the +Y end)
 #   op k:      add 0, sub 0 (cut away), smooth K (blend over K metres), and 0 (keep only the overlap)
 #   material:  armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin
 """
@@ -130,6 +131,8 @@ def parse(text):
             problems.append(f"line {no}: {cur['name']} has more than {MAX_PIECES} pieces; the game skips the extra ones")
         if tok[0] in ("box", "cyl") and v[6] > min(v[3:6]) + 1e-6:
             problems.append(f"line {no}: round {fmt(v[6])} is larger than the smallest half-size")
+        if tok[0] == "cone" and abs(v[3] - v[5]) >= 2 * v[4]:
+            problems.append(f"line {no}: a cone's two radii differ by more than its length")
         cur["pieces"].append({"kind": tok[0], "c": v[0:3], "h": v[3:6], "round": v[6], "rot": v[7:10],
                               "op": tok[11], "k": v[10], "mat": tok[13], "name": note})
     names = {s["name"]: s for s in shapes}
@@ -212,7 +215,7 @@ def quat_to_euler(q):  # the reverse: (x, y, z, w) -> pitch, yaw, roll in degree
 QUIET = False  # set while the command line saves a .blend, so that save does not also rewrite the shapes file
 
 if bpy:
-    PIECE_KINDS = {"BOX": "box", "CYL": "cyl", "SPHERE": "sphere", "CAPSULE": "capsule"}
+    PIECE_KINDS = {"BOX": "box", "CYL": "cyl", "SPHERE": "sphere", "CAPSULE": "capsule", "CONE": "cone"}
 
     def material(name):
         m = bpy.data.materials.get("mv_" + name)
@@ -255,12 +258,13 @@ if bpy:
             smooth = False
         elif kind == "cyl":
             verts, faces = lathe([(0, -hy), (hx, -hy), (hx, hy), (0, hy)])
-        else:
+        else:  # sphere, capsule, or cone: two round ends, each with its own radius for a cone
             n = 8
-            arc = [(hx * math.cos(math.pi / 2 * i / n), hx * math.sin(math.pi / 2 * i / n)) for i in range(n + 1)]
-            off = hy if kind == "capsule" else 0.0
-            lower = [(r, -z - off) for r, z in reversed(arc)]
-            upper = [(r, z + off) for r, z in arc]
+            arc = [(math.cos(math.pi / 2 * i / n), math.sin(math.pi / 2 * i / n)) for i in range(n + 1)]
+            off = 0.0 if kind == "sphere" else hy
+            top = hz if kind == "cone" else hx
+            lower = [(hx * r, -hx * z - off) for r, z in reversed(arc)]
+            upper = [(top * r, top * z + off) for r, z in arc]
             verts, faces = lathe(lower + (upper if off else upper[1:]))
         me = bpy.data.meshes.new(name)
         me.from_pydata(verts, [], faces)
@@ -327,7 +331,7 @@ if bpy:
             o.data.materials.append(material(MATS[value]))
 
     class MechVRProps(bpy.types.PropertyGroup):
-        kind: bpy.props.EnumProperty(name="Kind", items=[(k, k.title(), "") for k in ["NONE", "SHAPE", "BOX", "CYL", "SPHERE", "CAPSULE", "POINT"]])
+        kind: bpy.props.EnumProperty(name="Kind", items=[(k, k.title(), "") for k in ["NONE", "SHAPE", "BOX", "CYL", "SPHERE", "CAPSULE", "POINT", "CONE"]])
         op: bpy.props.EnumProperty(name="Does", update=_update, items=[
             ("ADD", "Add", "Adds to the shape"), ("SUB", "Cut", "Cuts away from what came before"),
             ("SMOOTH", "Blend", "Adds with a soft join"), ("AND", "Overlap", "Keeps only the part that overlaps what came before")])
@@ -463,7 +467,13 @@ if bpy:
                 half = [abs((hi[i] - lo[i]) * 0.5 * scale[i]) for i in range(3)]
                 centre = rel @ ((lo + hi) * 0.5)
                 kind = PIECE_KINDS[o.mechvr.kind]
-                if kind == "box":
+                if kind == "cone":  # the first half of the points is the -Y end, the second half the +Y end
+                    rad = [math.hypot(c[0], c[1]) for c in co]
+                    r1, r2 = max(rad[:len(rad) // 2]), max(rad[len(rad) // 2:])
+                    span = (hi[2] - lo[2] - r1 - r2) * 0.5
+                    centre = rel @ Vector(((lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, lo[2] + r1 + span))
+                    h = [abs(r1 * scale[0]), max(abs(span * scale[2]), 0.001), abs(r2 * scale[0])]
+                elif kind == "box":
                     h = [half[0], half[2], half[1]]
                 elif kind == "cyl":
                     h = [half[0], half[2], half[0]]
@@ -621,7 +631,7 @@ if bpy:
             shape = shape_of(context.active_object)
             used = [int(m.group(1)) for m in (re.match(r"^\S*\.(\d+)", c.name) for c in pieces_of(shape)) if m]
             s = self.size
-            h = {"box": [s, s, s], "cyl": [s, s, s], "sphere": [s, s, s], "capsule": [s * 0.5, s, s * 0.5]}[self.kind]
+            h = {"box": [s, s, s], "cyl": [s, s, s], "sphere": [s, s, s], "capsule": [s * 0.5, s, s * 0.5], "cone": [s * 0.6, s, s * 0.15]}[self.kind]
             o = new_piece(shape, max(used, default=-1) + 1,
                           {"kind": self.kind, "c": (0, 0, 0), "h": h, "round": 0.0, "rot": (0, 0, 0), "op": "add", "k": 0.0, "mat": "armor", "name": self.kind})
             refresh_shape(shape)
@@ -672,7 +682,7 @@ if bpy:
             lay.prop(shape.mechvr, "note")
             lay.operator("mechvr.add_point", icon="EMPTY_DATA")
             row = lay.row(align=True)
-            for kind, label in (("box", "Box"), ("cyl", "Cylinder"), ("sphere", "Sphere"), ("capsule", "Capsule")):
+            for kind, label in (("box", "Box"), ("cyl", "Cylinder"), ("sphere", "Sphere"), ("capsule", "Capsule"), ("cone", "Cone")):
                 row.operator("mechvr.add_piece", text=label).kind = kind
             lay.operator("mechvr.refresh", icon="FILE_REFRESH")
             if o is not shape and o.mechvr.kind == "POINT":

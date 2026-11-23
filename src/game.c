@@ -13,9 +13,9 @@ typedef struct {
     int active, shape, team, ndent, rest;
     xf x;
     v3 v, w;
-    float dent[8][4], heat[8], seed, age, radius, emit;
+    float dent[8][4], heat[8], seed, age, radius, emit, scale;
 } Debris;
-typedef struct { float t; int mech, part, rock, ground; v3 local; int bot; } Hit; // bot: index of a small enemy, or -1
+typedef struct { float t; int mech, part, rock, ground; v3 local; int bot, worm; } Hit; // bot: a small enemy, worm: a part of the worm, or -1
 enum { PT_SMOKE, PT_FIRE, PT_SPARK, PT_FLASH, PT_DUST, PT_RETICLE };
 enum { MODE_FOOT, MODE_PILOT, MODE_EJECT };
 enum { GRAB_NONE, GRAB_THROTTLE, GRAB_STICK, GRAB_EJECT };
@@ -27,6 +27,7 @@ enum { GRAB_NONE, GRAB_THROTTLE, GRAB_STICK, GRAB_EJECT };
 #define TOP_SPEED 7.5f
 static Mech mech[NMECH];
 static int nmech = 5, horde, swarm;
+static float wormDist = 380; // how far ahead of the start it lives; 0 = no worm
 int game_cards = 1; // draw distant mechs as flat cards
 int game_calm;      // test option: 1 = nobody attacks, 2 = enemy mechs do not attack but the small enemies do
 static Particle ptc[MAXPTC];
@@ -55,10 +56,11 @@ static struct {
     int fitted;
 } pl;
 
-static const v3 TINT[3][2] = {
+static const v3 TINT[4][2] = {
     {{0.44f, 0.52f, 0.30f}, {0.84f, 0.80f, 0.66f}}, // player: olive and cream
     {{0.66f, 0.17f, 0.15f}, {0.27f, 0.26f, 0.31f}}, // enemy: crimson and charcoal
     {{0.42f, 0.55f, 0.64f}, {0.86f, 0.86f, 0.84f}}, // spare: steel blue and white
+    {{0.62f, 0.42f, 0.30f}, {0.88f, 0.79f, 0.60f}}, // sand worm: hide and bone
 };
 static const v3 WIND = {1.3f, 0, 0.5f};
 static const v3 UP = {0, 1, 0};
@@ -118,6 +120,7 @@ xf game_rig(void) { return rigNow; }
 int game_piloting(void) { return pl.mode == MODE_PILOT; }
 void game_haptics(float *l, float *r) { *l = hapL; *r = hapR; hapL = hapR = 0; }
 static int deaths;
+void game_worm(float dist) { wormDist = dist; }
 void game_swarm(int n) { swarm = n < 0 ? 0 : n > 64 ? 64 : n; }
 void game_horde(int n) { horde = n < 0 ? 0 : n > NMECH - 5 ? NMECH - 5 : n; }
 void game_set_cam(v3 pos, float yaw) { pl.pos = pos; pl.yaw = yaw; pl.fly = 1; pl.mode = MODE_FOOT; mech[pl.mech].piloted = 0; update_rig(); }
@@ -128,6 +131,7 @@ static Debris *add_debris(int shape, xf x, int team, v3 v) {
     memset(d, 0, sizeof *d);
     d->active = 1; d->shape = shape; d->team = team; d->x = x;
     d->radius = shapes[shape].radius;
+    d->scale = 1;
     d->v = vadd(v, rv(1.5f));
     d->w = rv(2.5f);
     d->seed = frand() * 30;
@@ -241,6 +245,89 @@ static void bot_hit(Bot *b, int part, v3 local, v3 wpos, v3 dir, float dmg) {
     else if (b->hp < BOT[b->kind].hp * 0.4f) smoke(wpos, 0.4f);
 }
 
+// ---- the sand worm ------------------------------------------------------------------------------------
+// A head, a row of body rings and a tail, all following the path the head has taken. It cruises under the
+// sand (you see a mound, dust and hear thumps), then breaches: a long arc onto its prey, or straight up
+// from underneath when it is close. The inside of its mouth is its weak spot.
+#define WSEG 22            // body rings between the head and the tail
+#define WPARTS (WSEG + 2)
+#define WPATH 256
+#define WSTEP 0.6f         // metres between remembered head positions
+typedef struct {
+    int alive, breach, aggro, bit, pass, top; // pass: running clear after overshooting its prey. top: newest entry in path
+    v3 p, v, home;
+    float yaw, hp, timer, thump, strike, acc, chew;
+    v3 path[WPATH];
+    float dent[WPARTS][4][4], heat[WPARTS][4], flash[WPARTS];
+    int ndent[WPARTS];
+} Worm;
+static Worm worm;
+static xf wormX[WPARTS];     // where each part is this frame
+static float wormS[WPARTS];  // and how large
+static int wormVis[WPARTS];  // and whether any of it is above the sand
+
+static int worm_shape(int k) { return k == 0 ? S_WORM_HEAD : k == WPARTS - 1 ? S_WORM_TAIL : S_WORM_SEG; }
+static v3 worm_at(float d) { // the point d metres back along the body
+    const Worm *w = &worm;
+    if (d <= w->acc) return vadd(w->p, vmul(vsub(w->path[w->top], w->p), d / maxf(w->acc, 1e-4f)));
+    d = (d - w->acc) / WSTEP;
+    int i = (int)d;
+    if (i >= WPATH - 2) i = WPATH - 2;
+    v3 a = w->path[(w->top - i + WPATH) % WPATH], b = w->path[(w->top - i - 1 + WPATH) % WPATH];
+    return vadd(a, vmul(vsub(b, a), minf(d - i, 1)));
+}
+static void worm_place(void) {
+    float d = 0, prev = 1;
+    for (int k = 0; k < WPARTS; k++) {
+        float t = (float)k / (WPARTS - 1), s = t < 0.45f ? 1 : mixf(1, 0.42f, (t - 0.45f) / 0.55f);
+        if (k == WPARTS - 1) s = prev;
+        d += k == 0 ? 0 : k == 1 ? 3.7f : k == WPARTS - 1 ? 1.4f * s : 1.8f * (prev + s);
+        v3 p = worm_at(d), dir = k == 0 ? worm.v : vsub(worm_at(maxf(d - 1.2f, 0)), worm_at(d + 1.2f));
+        wormX[k] = XF(p, qlook(vlen(dir) > 1e-4f ? vnorm(dir) : yawFwd(worm.yaw)));
+        wormS[k] = s;
+        wormVis[k] = worm.alive && p.y + 3.6f * s > world_height(p.x, p.z) - 0.5f;
+        prev = s;
+    }
+}
+static void worm_die(void) {
+    Worm *w = &worm;
+    for (int k = 0; k < WPARTS; k++) {
+        if (!wormVis[k]) continue;
+        v3 p = wormX[k].p;
+        float s = wormS[k];
+        spawn(PT_FLASH, p, V3(0, 0, 0), 0.2f, 7 * s, 0, 0, 0);
+        for (int i = 0; i < 5; i++) fire(vadd(p, rv(2.5f * s)), 2.2f * s);
+        for (int i = 0; i < 3; i++) smoke(vadd(p, rv(3 * s)), 2.0f * s);
+        Debris *d = add_debris(worm_shape(k), wormX[k], 3, vadd(rv(5), V3(0, 4 + frand() * 5, 0)));
+        d->scale = s;
+        d->radius *= s;
+        d->ndent = w->ndent[k];
+        memcpy(d->dent, w->dent[k], sizeof w->dent[k]);
+        memcpy(d->heat, w->heat[k], sizeof w->heat[k]);
+    }
+    audio_play(SND_ROAR, w->p, 2.5f);
+    audio_play(SND_BOOM, w->p, 2.0f);
+    hapL = hapR = 1;
+    w->alive = 0;
+    worm_place();
+}
+static void worm_hit(int k, v3 local, v3 wpos, v3 dir, float dmg) {
+    Worm *w = &worm;
+    v3 back = vmul(dir, -1);
+    int soft = k == 0 && local.z < -2.6f && local.x * local.x + local.y * local.y < 2.7f * 2.7f; // inside the mouth
+    w->hp -= dmg * (soft ? 3 : 1);
+    w->flash[k] = 1;
+    w->aggro = 1;
+    spawn(PT_FLASH, vadd(wpos, vmul(back, 0.3f)), V3(0, 0, 0), 0.1f, (soft ? 2.2f : 0.9f) + dmg * 0.03f, 0, 0, 0);
+    sparks(wpos, back, soft ? 14 : 5, 7, 0.08f);
+    audio_play(SND_HIT, wpos, 0.4f + dmg * 0.02f);
+    int j = w->ndent[k] < 4 ? w->ndent[k]++ : (int)(frand() * 3.99f);
+    w->dent[k][j][0] = local.x; w->dent[k][j][1] = local.y; w->dent[k][j][2] = local.z;
+    w->dent[k][j][3] = clampf((0.13f + 0.011f * dmg) * 2.4f, 0.35f, 0.95f);
+    w->heat[k][j] = 1;
+    if (w->hp <= 0) worm_die();
+}
+
 // ---- setup -----------------------------------------------------------------------------------------
 void game_init(int demo, int startOnFoot) {
     demoLevel = demo;
@@ -298,6 +385,16 @@ void game_init(int demo, int startOnFoot) {
             b->pos.y = world_height(b->pos.x, b->pos.z) + (kind == B_DRONE ? 13 : 0);
         }
     }
+    memset(&worm, 0, sizeof worm);
+    if (wormDist > 0) { // it starts under the sand on its home ground, far ahead
+        worm.alive = 1;
+        worm.hp = 900;
+        worm.home = V3(0, 0, -wormDist);
+        worm.p = V3(110, world_height(110, -wormDist) - 9, -wormDist);
+        worm.timer = 4;
+        for (int i = 0; i < WPATH; i++) worm.path[i] = vadd(worm.p, V3(0, 0, WSTEP * (float)((WPATH - i) % WPATH)));
+    }
+    worm_place();
     pl.hp = 100;
     pl.fade = 1;
     pl.fadeDir = -1;
@@ -329,7 +426,7 @@ static void collide_rocks(v3 *p, float radius) {
 
 // Nearest thing along a ray: mechs (except `skip`), rocks or the ground.
 static Hit trace(v3 ro, v3 rd, float tmax, int skip) {
-    Hit h = {tmax, -1, 0, 0, 0, {0, 0, 0}, -1};
+    Hit h = {tmax, -1, 0, 0, 0, {0, 0, 0}, -1, -1};
     for (int k = 0; k < nmech; k++) {
         if (k == skip || !mech[k].alive) continue;
         v3 oc = vsub(vadd(mech[k].pos, V3(0, 5, 0)), ro);
@@ -354,12 +451,24 @@ static Hit trace(v3 ro, v3 rd, float tmax, int skip) {
         else if (miss < near * near && (t = along - sqrtf(near * near - miss)) > 0 && t < h.t) part = 1;
         if (part >= 0) { h.t = t; h.mech = -1; h.bot = b->alive ? k : -1; h.part = part; h.local = l; h.rock = !b->alive; }
     }
+    for (int k = 0; k < WPARTS; k++) {
+        if (!wormVis[k]) continue;
+        const Shape *sp = &shapes[worm_shape(k)];
+        float sc = wormS[k], t, r = (vlen(sp->boxH) + vlen(sp->boxC)) * sc;
+        v3 oc = vsub(wormX[k].p, ro), l;
+        float along = vdot(oc, rd);
+        if (along < -r || along > h.t + r || vdot(oc, oc) - along * along > r * r) continue;
+        xf inv = xfinv(wormX[k]); // the shape is drawn enlarged, so shrink the ray instead
+        if (shape_ray(sp, XF(V3(0, 0, 0), qid()), vmul(xfpt(inv, ro), 1 / sc), qrot(inv.q, rd), h.t / sc, worm.dent[k], worm.ndent[k], &t, &l)) {
+            h.t = t * sc; h.mech = -1; h.bot = -1; h.rock = 0; h.worm = k; h.local = l;
+        }
+    }
     for (int k = 0; k < NROCK; k++) {
         v3 oc = vsub(rocks[k].pos, ro), l;
         float along = vdot(oc, rd), t;
         if (along < -7 || along > h.t + 7 || vdot(oc, oc) - along * along > 49) continue;
         if (shape_ray(&shapes[S_ROCK0 + rocks[k].shape], XF(rocks[k].pos, qaxis(UP, rocks[k].yaw)), ro, rd, h.t, NULL, 0, &t, &l)) {
-            h.t = t; h.mech = -1; h.bot = -1; h.rock = 1;
+            h.t = t; h.mech = -1; h.bot = -1; h.worm = -1; h.rock = 1;
         }
     }
     float prev = 0;
@@ -372,7 +481,7 @@ static Hit trace(v3 ro, v3 rd, float tmax, int skip) {
                 v3 q = vadd(ro, vmul(rd, m));
                 if (q.y < world_height(q.x, q.z)) b = m; else a = m;
             }
-            h.t = b; h.mech = -1; h.bot = -1; h.rock = 0; h.ground = 1;
+            h.t = b; h.mech = -1; h.bot = -1; h.worm = -1; h.rock = 0; h.ground = 1;
             break;
         }
     }
@@ -547,6 +656,99 @@ static void bots_update(float dt, v3 tgt, int onFoot) {
                 b->cool = 2.6f;
             }
         }
+    }
+}
+
+static void worm_update(float dt, v3 tgt, int onFoot) {
+    Worm *w = &worm;
+    if (!w->alive) return;
+    for (int k = 0; k < WPARTS; k++) {
+        w->flash[k] = maxf(0, w->flash[k] - dt * 7);
+        for (int j = 0; j < w->ndent[k]; j++) w->heat[k][j] = maxf(0, w->heat[k][j] - dt * 0.45f);
+    }
+    float ground = world_height(w->p.x, w->p.z), depth = ground - 9;
+    v3 to = vsub(tgt, w->p);
+    float dist = sqrtf(to.x * to.x + to.z * to.z);
+    float near = clampf(1 - vlen(vsub(w->p, rigNow.p)) / 140, 0, 1); // how strongly you feel it
+    if (dist < 220) w->aggro = 1;
+    if (game_calm == 1 || pl.dead || pl.fly || dist > 500) w->aggro = 0;
+    v3 f = yawFwd(w->yaw);
+    if (!w->breach) {
+        // Under the sand: head for its prey, or circle its home ground when it has none.
+        v3 goal = w->aggro ? tgt : V3(w->home.x + sinf(gtime * 0.13f) * 110, 0, w->home.z + cosf(gtime * 0.13f) * 110);
+        float want = atan2f(-(goal.x - w->p.x), -(goal.z - w->p.z));
+        // It cannot turn tightly, so after passing under its prey it runs on, swings round and comes back.
+        if (!w->aggro || dist > 75) w->pass = 0;
+        else if (dist < 40 && fabsf(wrap(want - w->yaw)) > 1.0f) w->pass = 1;
+        if (!w->pass) w->yaw = wrap(w->yaw + clampf(wrap(want - w->yaw), -0.5f * dt, 0.5f * dt));
+        w->v = V3(f.x * 15, clampf((depth - w->p.y) * 1.5f, -8, 8), f.z * 15);
+        w->timer -= dt;
+        int under = w->aggro && dist < 14, lunge = !w->aggro || (dist > 50 && dist < 95 && fabsf(wrap(want - w->yaw)) < 0.3f);
+        if (w->timer <= 0 && w->p.y < depth + 2 && (under || lunge)) {
+            w->breach = 1;
+            w->bit = 0;
+            if (w->aggro && !under) w->yaw = want; // commits to where its prey is at this moment
+            w->strike = under ? 4.0f : w->aggro ? clampf(dist / 4.9f, 9, 20) : 15.0f; // straight up from below, or an arc that comes down where the prey is now
+            w->v.y = under ? 22.0f : 24.5f;
+            audio_play(SND_ROAR, V3(w->p.x, ground, w->p.z), 2.2f);
+        }
+        w->thump -= dt;
+        if (w->thump <= 0) { // what you hear and see of it while it is under: thumps, puffs of dust
+            w->thump = 0.55f;
+            audio_play(SND_STEP, V3(w->p.x, ground, w->p.z), 1.6f);
+            for (int i = 0; i < 3; i++)
+                spawn(PT_DUST, V3(w->p.x + frands() * 5, ground + 0.5f, w->p.z + frands() * 5), V3(frands(), 1.5f + frand(), frands()), 1.6f, 1.6f, 1.5f, -0.8f, 1);
+            if (near > 0.3f) hapL = hapR = maxf(hapL, near * 0.35f);
+        }
+    } else {
+        w->v = V3(f.x * w->strike, w->v.y - 9 * dt, f.z * w->strike);
+        if (w->v.y < 0 && w->p.y < depth) { w->breach = 0; w->timer = 7 + frand() * 4; }
+    }
+    int wasUnder = w->p.y < ground;
+    w->p = vadd(w->p, vmul(w->v, dt));
+    w->acc += vlen(w->v) * dt;
+    while (w->acc >= WSTEP) { w->top = (w->top + 1) % WPATH; w->path[w->top] = w->p; w->acc -= WSTEP; }
+    float g2 = world_height(w->p.x, w->p.z);
+    if (wasUnder != (w->p.y < g2)) { // the head bursts out of, or back into, the sand
+        v3 c = V3(w->p.x, g2 + 1, w->p.z);
+        for (int i = 0; i < 26; i++)
+            spawn(PT_DUST, vadd(c, V3(frands() * 5, 0, frands() * 5)), V3(frands() * 7, 3 + frand() * 9, frands() * 7), 2.0f + frand() * 1.5f, 3.0f, 3.0f, -3.0f, 1);
+        audio_play(SND_BOOM, c, 1.6f);
+        hapL = hapR = maxf(hapL, near);
+    }
+    worm_place();
+    for (int k = 0; k < WPARTS; k++) { // sand pours off wherever the body crosses the surface
+        v3 p = wormX[k].p;
+        float gy = world_height(p.x, p.z), s = wormS[k];
+        if (fabsf(p.y - gy) < 3.2f * s && frand() < dt * 12)
+            spawn(PT_DUST, V3(p.x + frands() * 3 * s, gy + 0.5f, p.z + frands() * 3 * s), V3(frands() * 2, 2 + frand() * 3, frands() * 2), 1.5f + frand(), 2.4f * s, 2.2f, -1.5f, 1);
+    }
+    // The bite: whatever is in its mouth while the head is out of the sand.
+    v3 maw = xfpt(wormX[0], pnt[PNT_WORM_HEAD_MAW]), dir = vnorm(w->v);
+    if (!w->breach || maw.y < world_height(maw.x, maw.z) - 1) return;
+    if (!w->bit && !pl.dead && !pl.fly && vlen(vsub(tgt, maw)) < (onFoot ? 5.0f : 7.0f)) {
+        w->bit = 1; // once per breach
+        audio_play(SND_BOOM, maw, 1.5f);
+        hapL = hapR = 1;
+        pl.hurt = 1;
+        if (onFoot) {
+            pl.hp -= 75;
+            if (pl.hp <= 0 && pl.mode == MODE_FOOT) { pl.dead = 1; pl.fadeDir = 1; }
+        } else {
+            Mech *m = &mech[pl.mech];
+            apply_hit(m, P_TORSO, shapes[S_TORSO].boxC, tgt, dir, 45);
+            if (m->alive) apply_hit(m, P_THIGH_L, shapes[S_THIGH].boxC, m->world[P_THIGH_L].p, dir, 30);
+        }
+    }
+    w->chew -= dt;
+    if (w->chew > 0) return;
+    for (int i = 0; i < nbot; i++) // it is no friend of the machines either
+        if (bot[i].alive && vlen(vsub(bot_xf(&bot[i]).p, maw)) < 5.5f) { bot_die(&bot[i], dir); w->chew = 0.5f; }
+    for (int i = 0; i < nmech; i++) {
+        Mech *m = &mech[i];
+        if (!m->alive || (pl.mode == MODE_PILOT && i == pl.mech) || vlen(vsub(xfpt(m->world[P_TORSO], V3(0, 1.3f, 0)), maw)) > 7) continue;
+        apply_hit(m, P_TORSO, shapes[S_TORSO].boxC, m->world[P_TORSO].p, dir, 55);
+        w->chew = 0.8f;
     }
 }
 
@@ -750,6 +952,7 @@ void game_update(const Input *in) {
     }
 
     bots_update(dt, tgt, pl.mode != MODE_PILOT);
+    worm_update(dt, tgt, pl.mode != MODE_PILOT);
 
     // shots
     for (int i = 0; i < MAXBOLT; i++) {
@@ -779,6 +982,9 @@ void game_update(const Input *in) {
             b->active = 0;
         } else if (h.bot >= 0) {
             bot_hit(&bot[h.bot], h.part, h.local, end, dir, b->dmg);
+            b->active = 0;
+        } else if (h.worm >= 0) {
+            worm_hit(h.worm, h.local, end, dir, b->dmg);
             b->active = 0;
         } else if (h.rock || h.ground) {
             int n = b->kind ? 6 : 2;
@@ -899,6 +1105,29 @@ static void bots_scene(Scene *s) {
     }
 }
 
+static void worm_scene(Scene *s) {
+    const Worm *w = &worm;
+    memset(s->bulge, 0, sizeof s->bulge);
+    if (!w->alive) return;
+    for (int k = 0; k < WPARTS; k++) {
+        if (!wormVis[k]) continue;
+        DrawPart *d = push(s, worm_shape(k), wormX[k], 3);
+        d->scale = wormS[k];
+        d->ndent = w->ndent[k];
+        memcpy(d->dent, w->dent[k], sizeof w->dent[k]);
+        memcpy(d->heat, w->heat[k], sizeof w->heat[k]);
+        d->seed = (float)k;
+        d->flash = w->flash[k];
+        d->texel = 0.25f;
+        d->stage = w->hp < 300 ? 2 : 0;
+        if (!(k & 1)) shadow(s, wormX[k].p, 3.0f * wormS[k]);
+    }
+    // the mound over its head while it is under the sand
+    float ground = world_height(w->p.x, w->p.z), under = ground - w->p.y;
+    float bulge[4] = {w->p.x, w->p.z, 1.9f * clampf(under / 3, 0, 1) * clampf((14 - under) / 4, 0, 1), 8};
+    memcpy(s->bulge, bulge, sizeof bulge);
+}
+
 void game_scene(Scene *s, const Input *in) {
     xf rig = rigNow;
     s->npart = s->nptc = s->nshadow = 0;
@@ -1006,10 +1235,12 @@ void game_scene(Scene *s, const Input *in) {
     }
 
     bots_scene(s);
+    worm_scene(s);
     for (int i = 0; i < MAXDEB; i++) {
         Debris *b = &deb[i];
         if (!b->active) continue;
         DrawPart *d = push(s, b->shape, b->x, b->team);
+        d->scale = b->scale;
         d->stage = 3;
         d->ndent = b->ndent;
         memcpy(d->dent, b->dent, sizeof d->dent);
@@ -1035,6 +1266,6 @@ void game_report(void) { // one line for test runs: how the fight is going
     int kind[3] = {0, 0, 0}, mechs = 0;
     for (int i = 0; i < nbot; i++) kind[bot[i].kind] += bot[i].alive;
     for (int i = 0; i < nmech; i++) mechs += mech[i].alive && mech[i].team == 1;
-    printf("report: %s, your mech torso %.0f of 160, you %.0f of 100, restarts %d; left: %d enemy mechs, %d drones, %d crawlers, %d turrets\n",
-           pl.mode == MODE_PILOT ? "piloting" : "on foot", mech[0].alive ? mech[0].hp[P_TORSO] : 0, pl.hp, deaths, mechs, kind[0], kind[1], kind[2]);
+    printf("report: %s, your mech torso %.0f of 160, you %.0f of 100, restarts %d; left: %d enemy mechs, %d drones, %d crawlers, %d turrets, worm %.0f of 900 (head at %.0f %.0f %.0f, heading %.2f)\n",
+           pl.mode == MODE_PILOT ? "piloting" : "on foot", mech[0].alive ? mech[0].hp[P_TORSO] : 0, pl.hp, deaths, mechs, kind[0], kind[1], kind[2], worm.alive ? worm.hp : 0, worm.p.x, worm.p.y, worm.p.z, worm.yaw);
 }

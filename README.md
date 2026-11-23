@@ -64,6 +64,7 @@ Needs gcc, make, python3, glslangValidator, and the development files for OpenXR
 - **Drones** (6, in two flights): they circle overhead and fire short bursts. A nuisance to a mech, dangerous on foot. Three pistol shots each.
 - **Turrets** (3, far out): fixed guns with a heavy shell every 2.6 seconds out to 220 m. They take about seven plasma hits. The shells are slow, so keep moving.
 - Hitting one of a group wakes the rest of it. Small enemies show holes where they are hit and smoke when badly damaged.
+- **The sand worm** lives about 380 m ahead and is about 70 m long. Under the sand it shows as a moving mound with dust and thumps; every several seconds it breaches in a long arc. It hunts you once you come within 220 m or shoot it: either an arc that comes down where you were standing when it launched, or straight up from underneath if you let it get within 14 m. A bite costs a mech 45 torso and 30 leg armour, and a person on foot 75 of 100 health, so keep moving. It has 900 health; shots into its open mouth count three times. It also eats crawlers and bites enemy mechs that get in its way.
 - Each mech part has four damage stages: intact, damaged, critical (trails smoke), destroyed. Arms fall off and take their weapon with them. Losing the torso, hips or a leg destroys the mech.
 - If you eject from a mech whose torso is critical, its reactor explodes a couple of seconds later.
 
@@ -96,7 +97,7 @@ How shapes work in Blender:
 - The mech stands Z up and faces the front view (-Y). Its left side is on +X.
 - Pieces apply in name order (`TORSO.00`, `TORSO.01` ...). A cutter removes material from every piece before it, not from pieces after it. Rename a piece to move it in the order, then press **Refresh preview**.
 - The panel sets what a piece does (add, cut, blend, overlap), its corner rounding and its material. The game picks the colours: `armor` and `armor2` take the team colours.
-- A shape can have at most 16 pieces.
+- A shape can have at most 16 pieces. Pieces are boxes, cylinders, spheres, capsules and cones (a capsule with a different radius at each end, for teeth, spikes and tapering limbs).
 - Blender shows a close stand-in. Soft blends between pieces only show in the game.
 - The game draws the shapes and reads the points it knows by name, and expects each part on a fixed parent; it prints a line at startup for anything missing or unknown. New shapes and points are added to `SHAPE_LIST` and `POINT_LIST` in `src/mech.h` and then used from the game code. The walk cycle (stride, leg angles) and weapon behaviour are still code.
 
@@ -125,6 +126,7 @@ With the Flatpak Blender, write `flatpak run org.blender.Blender` for `blender` 
 --shapes file           read shapes from this file instead of the built-in copy, and again whenever it changes
 --horde n               add n extra enemy mechs (up to 128), scattered 130 to 600 m ahead
 --swarm n               add n extra drones and n extra crawlers (up to 64 each), scattered 80 to 400 m ahead
+--worm metres           how far ahead the sand worm lives (default 380); 0 removes it
 --calm                  enemies keep patrolling and never attack
 --calm-mechs            enemy mechs never attack, the small enemies still do
 --nocards               trace every mech at any distance instead of drawing far ones as cards
@@ -139,7 +141,7 @@ With the Flatpak Blender, write `flatpak run org.blender.Blender` for `blender` 
 | `src/gfx.c` | Window, OpenGL context, shader compiling |
 | `src/render.c` | Draw passes: sky, ground, parts, distant-mech cards, particles, outlines |
 | `src/mech.c` | Shape loading, skeleton, walk cycle, hit testing, damage |
-| `src/game.c` | Player, piloting, enemy mechs, small enemies (drones, crawlers, turrets), shots, debris, particles |
+| `src/game.c` | Player, piloting, enemy mechs, small enemies (drones, crawlers, turrets), the sand worm, shots, debris, particles |
 | `src/world.c` | Terrain heights and rock placement |
 | `src/audio.c` | Sound synthesis |
 | `src/shaders/` | GLSL shaders, embedded into the program by `tools/embed.py` |

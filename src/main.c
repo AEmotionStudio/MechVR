@@ -40,6 +40,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--shapes") && i + 1 < argc) mech_shapes_live(argv[++i]);
         else if (!strcmp(argv[i], "--horde") && i + 1 < argc) game_horde(atoi(argv[++i]));
         else if (!strcmp(argv[i], "--swarm") && i + 1 < argc) game_swarm(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--worm") && i + 1 < argc) game_worm((float)atof(argv[++i]));
         else if (!strcmp(argv[i], "--nocards")) game_cards = 0;
         else if (!strcmp(argv[i], "--calm")) game_calm = 1;
         else if (!strcmp(argv[i], "--calm-mechs")) game_calm = 2;
@@ -47,7 +48,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--head") && i + 2 < argc) { headYaw = (float)atof(argv[++i]); cam[4] = (float)atof(argv[++i]); }
         else if (!strcmp(argv[i], "--bench")) { bench = flat = 1; fw = 1628; fh = 1940; }
         else if (!strcmp(argv[i], "--cam") && i + 5 < argc) { for (int k = 0; k < 5; k++) cam[k] = (float)atof(argv[++i]); haveCam = 1; }
-        else { printf("usage: mechvr [--flat] [--foot] [--look 0-2] [--demo 0-4] [--shot file.ppm] [--sim seconds] [--cam x y z yaw pitch] [--bench] [--frames n] [--shapes file] [--horde n] [--swarm n] [--calm] [--nocards]\n"); return 0; }
+        else { printf("usage: mechvr [--flat] [--foot] [--look 0-2] [--demo 0-4] [--shot file.ppm] [--sim seconds] [--cam x y z yaw pitch] [--bench] [--frames n] [--shapes file] [--horde n] [--swarm n] [--worm metres] [--calm] [--nocards]\n"); return 0; }
     }
     Gfx g;
     if (!gfx_init(&g, flat && !bench ? fw : 960, flat && !bench ? fh : 540, "MechVR")) return 1;

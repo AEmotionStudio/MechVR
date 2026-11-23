@@ -5,10 +5,13 @@ uniform float uPixAngle; // approximate angle covered by one rendered pixel
 uniform sampler2D uHeight; // terrain heights, one value every 4 m, wrapping
 
 // Terrain height at a world position (exactly the same blend the game code uses for walking).
+uniform vec4 uBulge;     // a mound pushed up by something moving under the sand: x, z, height, radius
 float H(vec2 xz) {
     vec2 g = xz / 4.0, i = floor(g), f = g - i;
     ivec2 a = ivec2(i) & 511, b = (a + 1) & 511;
-    return mix(mix(texelFetch(uHeight, a, 0).r, texelFetch(uHeight, ivec2(b.x, a.y), 0).r, f.x),
+    float up = 0.0;
+    if (uBulge.z > 0.0) { vec2 bd = (xz - uBulge.xy) / max(uBulge.w, 1.0); up = uBulge.z * exp(-dot(bd, bd)); }
+    return up + mix(mix(texelFetch(uHeight, a, 0).r, texelFetch(uHeight, ivec2(b.x, a.y), 0).r, f.x),
                mix(texelFetch(uHeight, ivec2(a.x, b.y), 0).r, texelFetch(uHeight, b, 0).r, f.x), f.y);
 }
 

@@ -2,7 +2,7 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 #include "mathx.h"
-enum { SND_CANNON, SND_PLASMA, SND_PISTOL, SND_HIT, SND_BOOM, SND_STEP, SND_WHOOSH, SND_CLICK };
+enum { SND_CANNON, SND_PLASMA, SND_PISTOL, SND_HIT, SND_BOOM, SND_STEP, SND_WHOOSH, SND_CLICK, SND_ROAR };
 void audio_init(void);
 void audio_shutdown(void);
 void audio_play(int type, v3 pos, float gain);                                  // a sound at a place in the world

@@ -14,6 +14,7 @@ typedef struct {
     v3 at;         // where the shape's origin sits on the shape it is attached to (its joint)
     int on;        // that shape, or -1
     float scr[4];  // its screen piece, if it has one: center xy and 1/size
+    int cone;      // it has cone pieces, which need the EXTRA build of the part shader
 } Shape;
 
 typedef struct {
@@ -26,6 +27,7 @@ typedef struct {
     float seed, flash, texel;
     int interior; // lit by cabin light instead of the sun, no distance haze
     float aux[4], stat[12], scr[4];
+    float scale; // draw the shape this many times larger; 0 means 1
 } DrawPart;
 
 typedef struct { float x, y, z, size, age, type, seed, spin; } DrawParticle;
@@ -51,6 +53,7 @@ typedef struct {
     v3 head;
     float time;
     int look;
+    float bulge[4]; // a mound in the sand: x, z, height, radius
     float vignette, fade;
     v3 fadeCol;
 } Scene;

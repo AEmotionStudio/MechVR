@@ -8,7 +8,7 @@ Shape shapes[S_COUNT];
 v3 pnt[PNT_COUNT];
 const int partShape[P_COUNT] = {S_PELVIS, S_TORSO, S_ARM_L, S_ARM_R, S_THIGH, S_SHIN, S_FOOT, S_THIGH, S_SHIN, S_FOOT};
 
-enum { T_BOX, T_CYL, T_SPHERE, T_CAPSULE };
+enum { T_BOX, T_CYL, T_SPHERE, T_CAPSULE, T_CONE };
 
 // ---- shapes: read from assets/shapes.txt, which is embedded at build time (the format is described there) ----
 extern const char shapes_txt[];
@@ -41,11 +41,14 @@ static int word(const char *list, const char *w) { // position of w in a space-s
 
 static void finish(Shape *s) { // bounding box of everything that adds volume
     v3 lo = V3(1e9f, 1e9f, 1e9f), hi = V3(-1e9f, -1e9f, -1e9f);
+    s->cone = 0;
     for (int i = 0; i < s->count; i++) {
         const float *f = s->prim[i].f;
+        if ((int)f[3] == T_CONE) s->cone = 1;
         if (f[12] == 1 || f[12] == 3) continue;
         v3 e = V3(f[4], f[5], f[6]);
         if ((int)f[3] == T_CAPSULE) e.y += e.x;
+        if ((int)f[3] == T_CONE) { e.x = e.z = maxf(f[4], f[6]); e.y += e.x; }
         quat q = Q(f[8], f[9], f[10], f[11]);
         v3 x = vabs(qrot(q, V3(1, 0, 0))), y = vabs(qrot(q, V3(0, 1, 0))), z = vabs(qrot(q, V3(0, 0, 1)));
         if ((int)f[14] == 6) { // screen material: the shader maps its picture onto this piece's front face
@@ -93,7 +96,7 @@ static void shapes_parse(const char *t) {
             else if (cur) fprintf(stderr, "shapes: line %d: the game does not use a point called %s on %s\n", line, name, curName);
         } else if (sscanf(buf, " %15s %f %f %f %f %f %f %f %f %f %f %15s %f %15s", kind, v, v + 1, v + 2, v + 3, v + 4, v + 5, v + 6, v + 7,
                           v + 8, v + 9, op, v + 10, mat) == 14) {
-            int ty = word("box cyl sphere capsule", kind), o = word("add sub smooth and", op);
+            int ty = word("box cyl sphere capsule cone", kind), o = word("add sub smooth and", op);
             int m = word("armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin", mat);
             if (!cur) continue;
             if (ty < 0 || o < 0 || m < 0) { fprintf(stderr, "shapes: line %d: unknown %s\n", line, ty < 0 ? kind : o < 0 ? op : mat); continue; }
@@ -101,6 +104,10 @@ static void shapes_parse(const char *t) {
             const float D = PI / 180;
             quat q = qeuler(v[7] * D, v[8] * D, v[9] * D);
             float f[16] = {v[0], v[1], v[2], (float)ty, v[3], v[4], v[5], v[6], q.x, q.y, q.z, q.w, (float)o, v[10], (float)m, 0};
+            if (ty == T_CONE) { // its slope, worked out once here so the shader does not have to
+                f[15] = (v[3] - v[5]) / (2 * v[4]);
+                f[7] = sqrtf(maxf(1 - f[15] * f[15], 0));
+            }
             memcpy(cur->prim[cur->count++].f, f, sizeof f);
         } else if (buf[strspn(buf, " \t\r")]) fprintf(stderr, "shapes: line %d: cannot read \"%s\"\n", line, buf);
     }
@@ -157,6 +164,13 @@ static float primDist(const float *f, v3 p) {
         return minf(maxf(dx, dy), 0) + sqrtf(ox * ox + oy * oy) - f[7];
     }
     case T_SPHERE: return vlen(l) - f[4];
+    case T_CONE: { // mirrors the shader: radius f[4] at the bottom end, f[6] at the top end
+        float h = 2 * f[5], k1 = f[15], k2 = f[7];
+        float qx = sqrtf(l.x * l.x + l.z * l.z), qy = l.y + f[5], k = -qx * k1 + qy * k2;
+        if (k < 0) return sqrtf(qx * qx + qy * qy) - f[4];
+        if (k > k2 * h) return sqrtf(qx * qx + (qy - h) * (qy - h)) - f[6];
+        return qx * k2 + qy * k1 - f[4];
+    }
     default: l.y -= clampf(l.y, -f[5], f[5]); return vlen(l) - f[4];
     }
 }

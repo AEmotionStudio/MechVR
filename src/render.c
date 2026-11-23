@@ -7,7 +7,8 @@ SH(tri_vert) SH(sky_frag) SH(terrain_vert) SH(terrain_frag) SH(part_vert) SH(par
 SH(particle_vert) SH(particle_frag) SH(final_frag) SH(imp_vert) SH(imp_frag)
 #define PROG(v, f) gfx_program(#f, shader_##v, shader_##v##_len, shader_##f, shader_##f##_len)
 
-static GLuint pSky, pTerrain, pPart, pPtc, pFinal, pImp;
+static GLuint pSky, pTerrain, pPart, pPartX, pPtc, pFinal, pImp;
+static GLuint pCur; // the build of the part shader in use: pPart, or pPartX for cones and enlarged shapes
 typedef struct { int rows, cw, ch; float width, y0, height, texel; GLuint fbo, col, nrm, depth; } ImpLayer;
 static ImpLayer imps[2];
 static GLuint vaoEmpty, vaoCube, vaoGrid, vaoPtc, vboPtc, texHeight, dstFbo;
@@ -32,6 +33,9 @@ void render_init(const float *height, int hn) {
     pSky = PROG(tri_vert, sky_frag);
     pTerrain = PROG(terrain_vert, terrain_frag);
     pPart = PROG(part_vert, part_frag);
+    gfx_define = "#define EXTRA\n";
+    pPartX = PROG(part_vert, part_frag);
+    gfx_define = "";
     pPtc = PROG(particle_vert, particle_frag);
     pFinal = PROG(tri_vert, final_frag);
     pImp = PROG(imp_vert, imp_frag);
@@ -143,17 +147,20 @@ static void rot3(quat q, float *o) {
     memcpy(o, m, sizeof m);
 }
 
-static void part_shape(const Shape *sp, xf world, m4 vp) {
-    m4 mvp = m4mul(vp, m4xf(world));
+static void part_shape(const Shape *sp, xf world, m4 vp, float scale) {
+    m4 model = m4xf(world);
+    for (int i = 0; i < 12; i++) model.m[i] *= scale;
+    m4 mvp = m4mul(vp, model);
+    if (pCur == pPartX) glUniform1f(U(pCur, "uScale"), scale);
     float r[9];
     rot3(world.q, r);
-    glUniformMatrix4fv(U(pPart, "uMVP"), 1, GL_FALSE, mvp.m);
-    glUniformMatrix3fv(U(pPart, "uRot"), 1, GL_FALSE, r);
-    glUniform3f(U(pPart, "uOriginW"), world.p.x, world.p.y, world.p.z);
-    glUniform3f(U(pPart, "uBoxC"), sp->boxC.x, sp->boxC.y, sp->boxC.z);
-    glUniform3f(U(pPart, "uBoxH"), sp->boxH.x, sp->boxH.y, sp->boxH.z);
-    glUniform4fv(U(pPart, "uP"), sp->count * 4, sp->prim[0].f);
-    glUniform1i(U(pPart, "uCount"), sp->count);
+    glUniformMatrix4fv(U(pCur, "uMVP"), 1, GL_FALSE, mvp.m);
+    glUniformMatrix3fv(U(pCur, "uRot"), 1, GL_FALSE, r);
+    glUniform3f(U(pCur, "uOriginW"), world.p.x, world.p.y, world.p.z);
+    glUniform3f(U(pCur, "uBoxC"), sp->boxC.x, sp->boxC.y, sp->boxC.z);
+    glUniform3f(U(pCur, "uBoxH"), sp->boxH.x, sp->boxH.y, sp->boxH.z);
+    glUniform4fv(U(pCur, "uP"), sp->count * 4, sp->prim[0].f);
+    glUniform1i(U(pCur, "uCount"), sp->count);
 }
 
 // ---- distant-mech cards --------------------------------------------------------------------------
@@ -209,6 +216,22 @@ void render_imp_layout(int layer, int rows, float width, float y0, float height,
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+static void bake_use(GLuint p, float eps) { // switch to one build of the part shader, set up for drawing card sheets
+    pCur = p;
+    glUseProgram(p);
+    glUniform1i(U(pCur, "uBake"), 1);
+    glUniform1i(U(pCur, "uLook"), 0);
+    glUniform1i(U(pCur, "uHeight"), 0);
+    glUniform1i(U(pCur, "uDentN"), 0);
+    glUniform1i(U(pCur, "uStage"), 0);
+    glUniform1i(U(pCur, "uInterior"), 0);
+    glUniform1f(U(pCur, "uFlash"), 0);
+    glUniform1f(U(pCur, "uTexel"), 0.0625f);
+    glUniform3f(U(pCur, "uTintA"), 1, 1, 1); // team colours are applied when the card is drawn
+    glUniform3f(U(pCur, "uTintB"), 1, 1, 1);
+    glUniform1f(U(pCur, "uBakeEps"), eps);
+}
+
 void render_imp_bake(int layer, int row, const Shape *const *shape, const xf *x, int n) {
     const ImpLayer *L = &imps[layer];
     glDisable(GL_BLEND);
@@ -220,23 +243,13 @@ void render_imp_bake(int layer, int row, const Shape *const *shape, const xf *x,
     glCullFace(GL_FRONT);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texHeight);
-    glUseProgram(pPart);
-    glUniform1i(U(pPart, "uBake"), 1);
-    glUniform1i(U(pPart, "uLook"), 0);
-    glUniform1i(U(pPart, "uHeight"), 0);
-    glUniform1i(U(pPart, "uDentN"), 0);
-    glUniform1i(U(pPart, "uStage"), 0);
-    glUniform1i(U(pPart, "uInterior"), 0);
-    glUniform1f(U(pPart, "uFlash"), 0);
-    glUniform1f(U(pPart, "uTexel"), 0.0625f);
-    glUniform3f(U(pPart, "uTintA"), 1, 1, 1); // team colours are applied when the card is drawn
-    glUniform3f(U(pPart, "uTintB"), 1, 1, 1);
     glBindVertexArray(vaoCube);
     for (int lod = 0; lod < IMP_LODS; lod++) {
         imp_attach(L, lod);
         // A traced mech gets slightly fatter with distance (its hit distance grows), which keeps thin pieces
         // visible. Each smaller sheet is drawn with a matching margin, so cards do the same.
-        glUniform1f(U(pPart, "uBakeEps"), 0.6f * L->texel * (float)(1 << lod));
+        float eps = 0.6f * L->texel * (float)(1 << lod);
+        pCur = 0;
         for (int k = 0; k < IMP_YAWS; k++) {
             float a = k * 2 * PI / IMP_YAWS, s = sinf(a), c = cosf(a); // the viewer stands in direction (s, 0, c) from the mech
             m4 vp = {{0}};
@@ -250,14 +263,19 @@ void render_imp_bake(int layer, int row, const Shape *const *shape, const xf *x,
             glViewport((k * L->cw) >> lod, (row * L->ch) >> lod, L->cw >> lod, L->ch >> lod);
             for (int i = 0; i < n; i++) {
                 v3 rd = qrot(qconj(x[i].q), V3(-s, 0, -c));
-                part_shape(shape[i], x[i], vp);
-                glUniform3f(U(pPart, "uBakeDir"), rd.x, rd.y, rd.z);
-                glUniform1f(U(pPart, "uSeed"), (float)i);
+                GLuint p = shape[i]->cone ? pPartX : pPart;
+                if (p != pCur) bake_use(p, eps);
+                part_shape(shape[i], x[i], vp, 1);
+                glUniform3f(U(pCur, "uBakeDir"), rd.x, rd.y, rd.z);
+                glUniform1f(U(pCur, "uSeed"), (float)i);
                 glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, 0);
             }
         }
     }
+    glUseProgram(pPart);
     glUniform1i(U(pPart, "uBake"), 0);
+    glUseProgram(pPartX);
+    glUniform1i(U(pPartX, "uBake"), 0);
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -310,6 +328,7 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
     glUniformMatrix4fv(U(pTerrain, "uVP"), 1, GL_FALSE, vp.m);
     glUniform2f(U(pTerrain, "uOrigin"), floorf(cam.x / 4) * 4, floorf(cam.z / 4) * 4);
     glUniform3f(U(pTerrain, "uCamW"), cam.x, cam.y, cam.z);
+    glUniform4fv(U(pTerrain, "uBulge"), 1, s->bulge);
     glUniform4fv(U(pTerrain, "uShadow"), s->nshadow, &s->shadow[0][0]);
     glUniform1i(U(pTerrain, "uShadowN"), s->nshadow);
     glBindVertexArray(vaoGrid);
@@ -318,32 +337,43 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
     // parts: draw the inside faces of each box so it also works with the camera inside the box
     glEnable(GL_CULL_FACE);
     glCullFace(GL_FRONT);
-    common(pPart, s, pixAngle);
-    glUniform3f(U(pPart, "uCamW"), cam.x, cam.y, cam.z);
+    int ready[2] = {0, 0};
+    pCur = 0;
     glBindVertexArray(vaoCube);
     for (int i = 0; i < s->npart; i++) {
         const DrawPart *d = &s->part[i];
         const Shape *sp = d->shape;
         v3 c = vsub(d->world.p, cam);
-        if (vdot(c, fwd) < -sp->radius) continue; // behind the viewer
-        v3 ro = xfpt(xfinv(d->world), cam);
-        part_shape(sp, d->world, vp);
-        glUniform3f(U(pPart, "uRo"), ro.x, ro.y, ro.z);
-        glUniform1i(U(pPart, "uDentN"), d->ndent);
-        if (d->ndent) {
-            glUniform4fv(U(pPart, "uDent"), d->ndent, &d->dent[0][0]);
-            glUniform1fv(U(pPart, "uHeat"), d->ndent, d->heat);
+        float scale = d->scale > 0 ? d->scale : 1;
+        if (vdot(c, fwd) < -sp->radius * scale) continue; // behind the viewer
+        GLuint p = scale != 1 || sp->cone ? pPartX : pPart;
+        if (p != pCur) {
+            pCur = p;
+            if (ready[p == pPartX]) glUseProgram(p);
+            else {
+                ready[p == pPartX] = 1;
+                common(p, s, pixAngle);
+                glUniform3f(U(p, "uCamW"), cam.x, cam.y, cam.z);
+            }
         }
-        glUniform1i(U(pPart, "uStage"), d->stage);
-        glUniform3f(U(pPart, "uTintA"), d->tintA.x, d->tintA.y, d->tintA.z);
-        glUniform3f(U(pPart, "uTintB"), d->tintB.x, d->tintB.y, d->tintB.z);
-        glUniform1f(U(pPart, "uSeed"), d->seed);
-        glUniform1i(U(pPart, "uInterior"), d->interior);
-        glUniform1f(U(pPart, "uFlash"), d->flash);
-        glUniform1f(U(pPart, "uTexel"), d->texel > 0 ? d->texel : 0.0625f);
-        glUniform4fv(U(pPart, "uAux"), 1, d->aux);
-        glUniform4fv(U(pPart, "uStat"), 3, d->stat);
-        glUniform4fv(U(pPart, "uScr"), 1, d->scr);
+        v3 ro = vmul(xfpt(xfinv(d->world), cam), 1 / scale);
+        part_shape(sp, d->world, vp, scale);
+        glUniform3f(U(pCur, "uRo"), ro.x, ro.y, ro.z);
+        glUniform1i(U(pCur, "uDentN"), d->ndent);
+        if (d->ndent) {
+            glUniform4fv(U(pCur, "uDent"), d->ndent, &d->dent[0][0]);
+            glUniform1fv(U(pCur, "uHeat"), d->ndent, d->heat);
+        }
+        glUniform1i(U(pCur, "uStage"), d->stage);
+        glUniform3f(U(pCur, "uTintA"), d->tintA.x, d->tintA.y, d->tintA.z);
+        glUniform3f(U(pCur, "uTintB"), d->tintB.x, d->tintB.y, d->tintB.z);
+        glUniform1f(U(pCur, "uSeed"), d->seed);
+        glUniform1i(U(pCur, "uInterior"), d->interior);
+        glUniform1f(U(pCur, "uFlash"), d->flash);
+        glUniform1f(U(pCur, "uTexel"), d->texel > 0 ? d->texel : 0.0625f);
+        glUniform4fv(U(pCur, "uAux"), 1, d->aux);
+        glUniform4fv(U(pCur, "uStat"), 3, d->stat);
+        glUniform4fv(U(pCur, "uScr"), 1, d->scr);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_BYTE, 0);
     }
 

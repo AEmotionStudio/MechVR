@@ -49,6 +49,10 @@ static float voice_sample(Voice *v) {
     case SND_WHOOSH: dur = 1.4f;
         v->lp += (noise() - v->lp) * (0.02f + 0.25f * t / dur);
         s = v->lp * sinf(3.14159f * t / dur) * 1.6f; break;
+    case SND_ROAR: dur = 2.8f; // the worm: a low growl that swells and fades
+        v->ph += TAU * (34 + 26 * sinf(3.14159f * t / dur)) * dt;
+        v->lp += (noise() - v->lp) * 0.03f;
+        s = ((sinf(v->ph) > 0 ? 0.3f : -0.3f) + sinf(v->ph * 0.5f) * 0.9f + v->lp * 2.2f) * sinf(3.14159f * t / dur); break;
     default: dur = 0.03f;
         s = noise() * expf(-t * 160) * 0.5f; break;
     }

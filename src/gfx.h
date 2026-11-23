@@ -27,6 +27,7 @@ int gfx_init(Gfx *g, int w, int h, const char *title);
 void gfx_poll(Gfx *g);
 void gfx_swap(Gfx *g);
 
+extern const char *gfx_define; // set before gfx_program to put extra lines (such as a #define) at the top of both shaders
 GLuint gfx_program(const char *name, const char *vs, int vsLen, const char *fs, int fsLen);
 GLuint gfx_tex(int w, int h, GLenum internal, GLenum filter);
 double gfx_time(void);

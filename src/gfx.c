@@ -117,12 +117,13 @@ void gfx_poll(Gfx *g) {
 
 void gfx_swap(Gfx *g) { glXSwapBuffers(g->dpy, g->win); }
 
+const char *gfx_define = ""; // extra lines put at the top of the next shaders built, e.g. "#define EXTRA\n"
 static GLuint compile(const char *name, GLenum type, const char *src, int len) {
     static const char head[] = "#version 450 core\n";
-    const char *parts[3] = {head, shader_common, src};
-    GLint lens[3] = {(GLint)sizeof head - 1, shader_common_len, len};
+    const char *parts[4] = {head, gfx_define, shader_common, src};
+    GLint lens[4] = {(GLint)sizeof head - 1, (GLint)strlen(gfx_define), shader_common_len, len};
     GLuint s = glCreateShader(type);
-    glShaderSource(s, 3, parts, lens);
+    glShaderSource(s, 4, parts, lens);
     glCompileShader(s);
     GLint ok = 0;
     glGetShaderiv(s, GL_COMPILE_STATUS, &ok);

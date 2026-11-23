@@ -5,7 +5,8 @@
 #                                 Without 'on', 'at' is only where Blender shows the shape; the game ignores it.
 # point NAME X Y Z                a named spot on the shape that the game looks up (weapon muzzle, pilot's eye ...)
 # kind  centre x y z   half-size x y z   round   pitch yaw roll (degrees)   op k   material   # name
-#   kind:      box, cyl (axis Y; half-size = radius, half-height, radius), sphere, capsule (radius, half-length, radius)
+#   kind:      box, cyl (axis Y; half-size = radius, half-height, radius), sphere, capsule (radius, half-length, radius),
+#              cone (a capsule with two radii: radius at the -Y end, half-length, radius at the +Y end)
 #   op k:      add 0, sub 0 (cut away), smooth K (blend over K metres), and 0 (keep only the overlap)
 #   material:  armor armor2 frame accent glass glow screen rock hazard seat glove plasma cabin
 
@@ -223,3 +224,36 @@ capsule 0.5 1.15 0.6           0.03 0.35 0.03       0      0 0 0      add 0     
 
 shape SPIT at -4 1 -10   # a crawler's shot
 capsule 0 0 0                  0.06 0.16 0.06       0      90 0 0     add 0      plasma
+
+shape WORM_HEAD at 25 3.5 20   # giant sand worm: head. origin: centre of the neck; the mouth opens towards -Z. About 3 m in radius
+point MAW 0 0 -4.6                    # the middle of the mouth: what it bites with, and its weak spot
+cyl     0 0 -1.5               3.2 3.4 3.2          1.2    90 0 0     add 0      armor   # head
+cyl     0 0 -4.3               3.5 0.6 3.5          0.5    90 0 0     smooth 0.6 armor2  # lip
+cyl     0 0 -4.2               2.5 2.6 2.5          0.8    90 0 0     sub 0      frame   # mouth
+sphere  0 0 -2                 1.4 1.4 1.4          0      0 0 0      add 0      glow    # throat
+cone    1.9032 0.7883 -5.23    0.42 0.8 0.06        0      -62.97 -180 -132.34 add 0      armor2  # teeth
+cone    0.7883 1.9032 -5.23    0.42 0.8 0.06        0      -39.07 -180 -162.17 add 0      armor2
+cone    -0.7883 1.9032 -5.23   0.42 0.8 0.06        0      -39.07 180 162.17 add 0      armor2
+cone    -1.9032 0.7883 -5.23   0.42 0.8 0.06        0      -62.97 180 132.34 add 0      armor2
+cone    -1.9032 -0.7883 -5.23  0.42 0.8 0.06        0      -62.97 0 -47.66 add 0      armor2
+cone    -0.7883 -1.9032 -5.23  0.42 0.8 0.06        0      -39.07 0 -17.83 add 0      armor2
+cone    0.7883 -1.9032 -5.23   0.42 0.8 0.06        0      -39.07 0 17.83 add 0      armor2
+cone    1.9032 -0.7883 -5.23   0.42 0.8 0.06        0      -62.97 0 47.66 add 0      armor2
+sphere  -2.3 2.1 -2.4          0.36 0.36 0.36       0      0 0 0      add 0      glow    # eye pits
+sphere  2.3 2.1 -2.4           0.36 0.36 0.36       0      0 0 0      add 0      glow
+
+shape WORM_SEG at 25 3.5 28   # one body ring; the game repeats it along the body and shrinks it towards the tail. The body runs along Z
+cyl     0 0 0                  3 1.9 3              0.9    90 0 0     add 0      armor   # body
+cyl     0 0 0                  3.3 0.3 3.3          0.3    90 0 0     smooth 0.5 armor2  # ridge
+cone    0 3.7306 0.1576        0.55 0.65 0.1        0      14.04 0 0  add 0      frame   # back spike
+cone    -2.6466 2.4466 0.099   0.42 0.5 0.08        0      15.95 0 43.88 add 0      frame   # side spikes
+cone    2.6466 2.4466 0.099    0.42 0.5 0.08        0      15.95 0 -43.88 add 0      frame
+sphere  -2.95 0.1 0.9          0.3 0.3 0.3          0      0 0 0      add 0      glow    # breathing holes
+sphere  2.95 0.1 0.9           0.3 0.3 0.3          0      0 0 0      add 0      glow
+
+shape WORM_TAIL at 25 3.5 36   # the end of the tail. origin: where it joins the last ring; it points towards +Z
+cone    0 0 2.4                2.9 3.4 0.5          0      90 0 0     add 0      armor   # taper
+cone    0 0.2225 6.6834        0.55 1.5 0.06        0      81.47 0 0  add 0      frame   # sting
+cone    0 2.6919 0.446         0.45 0.55 0.08       0      26.57 0 0  add 0      frame   # spikes
+cone    -2.2746 1.3341 0.4341  0.4 0.5 0.08         0      45 0 48.53 add 0      frame
+cone    2.2746 1.3341 0.4341   0.4 0.5 0.08         0      45 0 -48.53 add 0      frame

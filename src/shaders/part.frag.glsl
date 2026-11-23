@@ -9,6 +9,13 @@ uniform mat3 uRot;       // part -> world rotation
 uniform vec3 uRo;        // camera position in part space
 uniform vec3 uCamW;      // camera position in world space
 uniform vec3 uOriginW;   // part origin in world space
+// This shader is built twice. The plain build draws almost everything. The EXTRA build adds cone pieces and
+// shapes drawn enlarged (the sand worm); it is kept apart because those two features slow every traced pixel.
+#ifdef EXTRA
+uniform float uScale;    // the whole shape drawn this many times larger (uRo and uMVP already allow for it)
+#else
+const float uScale = 1.0;
+#endif
 uniform vec3 uBoxC, uBoxH;
 uniform vec4 uP[MAXP * 4];
 uniform int uCount;
@@ -46,6 +53,15 @@ float prim(int i, vec3 p) {
         return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - b.w;
     }
     if (ty == 2) return length(l) - b.x; // sphere
+#ifdef EXTRA
+    if (ty == 4) { // round cone along Y: radius b.x at the bottom end, b.z at the top end, half length b.y.
+        vec2 k = vec2(uP[i * 4 + 3].w, b.w), q = vec2(length(l.xz), l.y + b.y); // k: slope terms worked out when the shape is loaded
+        float along = dot(q, vec2(-k.x, k.y)), h = 2.0 * b.y;
+        if (along < 0.0) return length(q) - b.x;
+        if (along > k.y * h) return length(q - vec2(0.0, h)) - b.z;
+        return dot(q, vec2(k.y, k.x)) - b.x;
+    }
+#endif
     l.y -= clamp(l.y, -b.y, b.y);        // capsule along Y
     return length(l) - b.x;
 }
@@ -141,7 +157,7 @@ void main() {
     float ao = clamp(1.0 - 1.6 * clamp(0.16 - map(p + n * 0.16), 0.0, 1.0) - 0.5 * clamp(0.45 - map(p + n * 0.45), 0.0, 1.0), 0.35, 1.0);
 
     vec3 nw = uRot * n;
-    vec3 pw = uOriginW + uRot * p;
+    vec3 pw = uOriginW + uRot * p * uScale;
     vec3 vw = normalize(uCamW - pw);
     float dither = tex ? (hash13(floor(p / texel) + uSeed) - 0.5) * (uInterior == 1 ? 0.03 : 0.09) : 0.0;
 
