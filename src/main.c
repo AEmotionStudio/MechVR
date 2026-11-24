@@ -9,6 +9,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#ifdef _WIN32
+#include <direct.h>
+#define MKDIR(d) _mkdir(d)
+#else
+#include <sys/stat.h>
+#define MKDIR(d) mkdir(d, 0755)
+#endif
 
 static void save_ppm(const char *path, int w, int h) {
     unsigned char *px = malloc((size_t)w * h * 4);
@@ -36,6 +44,79 @@ static void write_wav_header(FILE *f, unsigned frames) {
 }
 static float step_to(float v, float target, float step) { return v + clampf(target - v, -step, step); }
 static v3 ease(v3 v, v3 target, float k) { return vadd(v, vmul(vsub(target, v), k)); }
+static quat qnlerp(quat a, quat b, float t) { // part way from a towards b, the short way round
+    if (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0) b = Q(-b.x, -b.y, -b.z, -b.w);
+    return qnorm(Q(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t));
+}
+
+// ---- recording what you play ------------------------------------------------------------------------
+// The world changes only through each frame's Input, so --record saves the options that shaped the world and then
+// every frame's Input (head, hands, buttons, frame time): about 25 KB a second, nothing the headset will notice.
+// --replay steps a fresh world through the same inputs, which plays the fight again exactly, and --video above can
+// film it from your own eyes (steadied by --smooth) or from any scripted camera.
+#define REC_MAGIC "MechVRr1"
+typedef struct { Input in; v3 check; } RecFrame; // check: where you were after the step, to notice a replay drifting
+static const struct { const char *opt; int args; } worldOpts[] = { // the options a recording keeps
+    {"--foot", 0}, {"--demo", 1}, {"--look", 1}, {"--horde", 1}, {"--swarm", 1}, {"--worm", 1},
+    {"--build", 3}, {"--calm", 0}, {"--calm-mechs", 0}, {"--nocards", 0}, {"--shapes", 1}, {"--sandbox", 0}, {"--hurt", 1}, {"--wave", 1}};
+
+static FILE *rec_open(const char *path, int argc, char **argv, char *name, size_t nameSize) {
+    if (!*path) { // no name given: recordings/mechvr-<date>-<time>.mvr
+        time_t now = time(NULL);
+        char stamp[32];
+        strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", localtime(&now));
+        MKDIR("recordings");
+        snprintf(name, nameSize, "recordings/mechvr-%s.mvr", stamp);
+    } else snprintf(name, nameSize, "%s", path);
+    FILE *f = fopen(name, "wb");
+    if (!f) { perror(name); return NULL; }
+    char opts[1024];
+    unsigned n = 0;
+    for (int i = 1; i < argc; i++)
+        for (unsigned k = 0; k < sizeof worldOpts / sizeof worldOpts[0]; k++)
+            if (!strcmp(argv[i], worldOpts[k].opt) && i + worldOpts[k].args < argc)
+                for (int j = 0; j <= worldOpts[k].args; j++) {
+                    size_t len = strlen(argv[i + j]) + 1;
+                    if (n + len <= sizeof opts) { memcpy(opts + n, argv[i + j], len); n += (unsigned)len; }
+                }
+    unsigned hdr[2] = {(unsigned)sizeof(RecFrame), n};
+    fwrite(REC_MAGIC, 1, 8, f);
+    fwrite(hdr, sizeof hdr, 1, f);
+    fwrite(opts, 1, n, f);
+    return f;
+}
+
+// Opens a recording and puts the options it was made with in front of the command line's own.
+static FILE *replay_open(const char *path, int *argc, char ***argv) {
+    static char opts[1025];
+    static char *args[320];
+    char magic[8];
+    unsigned hdr[2];
+    FILE *f = fopen(path, "rb");
+    if (!f) { perror(path); return NULL; }
+    if (fread(magic, 1, 8, f) != 8 || memcmp(magic, REC_MAGIC, 8) || fread(hdr, sizeof hdr, 1, f) != 1 ||
+        hdr[0] != sizeof(RecFrame) || hdr[1] > 1024 || fread(opts, 1, hdr[1], f) != hdr[1]) {
+        fprintf(stderr, "replay: %s is not a recording this build of MechVR can play\n", path);
+        fclose(f);
+        return NULL;
+    }
+    int n = 0;
+    args[n++] = (*argv)[0];
+    printf("replay: %s, recorded with:", path);
+    for (unsigned p = 0; p < hdr[1] && n < 64; p += (unsigned)strlen(opts + p) + 1) printf(" %s", args[n++] = opts + p);
+    long start = ftell(f), frames = 0;
+    double len = 0;
+    RecFrame fr;
+    int vr = 0;
+    while (fread(&fr, sizeof fr, 1, f) == 1) { len += fr.in.dt; vr |= fr.in.vr; frames++; }
+    fseek(f, start, SEEK_SET);
+    printf("%s\nreplay: %ld frames, %.1f s, played %s\n", n > 1 ? "" : " (no options)", frames, len, vr ? "in the headset" : "in a window");
+    for (int i = 1; i < *argc && n < 319; i++) args[n++] = (*argv)[i];
+    args[n] = NULL;
+    *argc = n;
+    *argv = args;
+    return f;
+}
 
 int main(int argc, char **argv) {
     int flat = 0, maxFrames = 0, demo = 0, bench = 0, fw = 1280, fh = 720, haveCam = 0, look = 0, foot = 0;
@@ -45,9 +126,19 @@ int main(int argc, char **argv) {
     float sim = 0, cam[5] = {0};
     // recording
     const char *videoPath = NULL, *wavPath = NULL;
-    float videoLen = 20, fovDeg = 0, orbit[4] = {0}, chase[3] = {0}, lookMix = 0, ejectAt = -1;
+    float videoLen = -1, fovDeg = 0, orbit[4] = {0}, chase[3] = {0}, lookMix = 0, ejectAt = -1;
     int fps = 30, camMode = 0, lookWhat = -1, pilot = 0; // camMode: 0 your own eyes, 1 placed, 2 orbiting, 3 riding behind your mech
     v3 camPos = {0, 0, 0}, camDrift = {0, 0, 0}, lookAt = {0, 0, 0};
+    // recording what you play, and playing it back
+    const char *recPath = NULL;
+    char recName[256] = "";
+    FILE *rec = NULL, *rep = NULL;
+    float smooth = 0.15f;
+    for (int i = 1; i + 1 < argc; i++)
+        if (!strcmp(argv[i], "--replay")) {
+            if (!(rep = replay_open(argv[i + 1], &argc, &argv))) return 1;
+            break;
+        }
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--flat")) flat = 1;
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc) maxFrames = atoi(argv[++i]);
@@ -89,9 +180,19 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--lookmix") && i + 1 < argc) lookMix = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--eject-at") && i + 1 < argc) ejectAt = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--cam") && i + 5 < argc) { for (int k = 0; k < 5; k++) cam[k] = (float)atof(argv[++i]); haveCam = 1; }
+        else if (!strcmp(argv[i], "--record")) recPath = i + 1 < argc && strncmp(argv[i + 1], "--", 2) ? argv[++i] : "";
+        else if (!strcmp(argv[i], "--replay") && i + 1 < argc) { i++; flat = 1; } // opened above
+        else if (!strcmp(argv[i], "--smooth") && i + 1 < argc) smooth = (float)atof(argv[++i]);
         else { printf("usage: mechvr [--flat] [--foot] [--look 0-2] [--demo 0-4] [--shot file.ppm] [--sim seconds] [--cam x y z yaw pitch] [--bench] [--frames n] [--shapes file] [--horde n] [--swarm n] [--worm metres] [--build body armL armR] [--calm] [--nocards] [--sandbox] [--wave n] [--hurt 1-3]\n"
+                                "playing back: --record [file] --replay file --smooth s\n"
                                 "recording: --video file --wav file --len s --fps n --size w h --fov deg --campos x y z --drift x y z --orbit r h deg/s start\n"
                                 "           --chase back up side --lookat x y z|worm|me|enemy --lookmix k --pilot --eject-at s\n"); return 0; }
+    }
+    if (videoLen < 0) videoLen = rep ? 0 : 20; // a replay is filmed to its end unless --len says otherwise
+    if (rep) autoplay = 0;                      // the recording already holds everything that was done
+    if (recPath && !rep) {
+        if (!(rec = rec_open(recPath, argc, argv, recName, sizeof recName))) return 1;
+        printf("record: saving what you play to %s\n", recName);
     }
     Gfx g;
     if (!gfx_init(&g, flat && !bench ? fw : 960, flat && !bench ? fh : 540, "MechVR")) return 1;
@@ -127,10 +228,15 @@ int main(int argc, char **argv) {
     double last = gfx_time(), tStat = last, worst = 0, gpuSum = 0, prevStart = last;
     int frames = 0, statFrames = 0;
     float simLeft = sim;
-    int written = 0, total = (int)(videoLen * fps + 0.5f);
+    int written = 0, total = rep && videoLen <= 0 ? 1 << 30 : (int)(videoLen * fps + 0.5f);
     double clock = 0, audioAcc = 0;
     v3 lookSm = {0, 0, 0}, posSm = {0, 0, 0};
     int camFresh = 1;
+    long recFrames = 0;
+    Input repIn = {0};                                   // the input of the last recorded frame played
+    double replayT0 = gfx_time() - sim, lastRender = replayT0; // watching a replay: it runs in real time from here (--sim skips ahead)
+    quat headSm = qid();
+    int headFresh = 1, repEnd = 0, drifted = 0;
     while (!g.quit && (flat || xr_poll())) {
         gfx_poll(&g);
         if (mech_shapes_poll()) mech_impostors_bake();
@@ -147,7 +253,9 @@ int main(int argc, char **argv) {
         double now = gfx_time();
         Input in = {0};
         XrFrame xf_ = {0};
-        if (flat) {
+        if (rep) {
+            in = repIn; // the recording drives the world, frame by frame in the stepping below
+        } else if (flat) {
             in.dt = shot || bench || videoPath ? 1.0f / 90 : (float)clampf((float)(now - prevStart), 0.001f, 0.05f);
             prevStart = now;
             if (g.mbtn[3]) { in.flatYaw = -g.mdx * 0.004f; pitch = clampf(pitch - g.mdy * 0.004f, -1.5f, 1.5f); }
@@ -216,7 +324,15 @@ int main(int argc, char **argv) {
             if (holdX > 1.0f) { in.ejectKey = 1; holdX = 0; }
         }
         int steps = videoPath ? 90 / fps : 1, recording = !videoPath || clock >= sim - 1e-4;
-        do { // --sim fast-forwards the world before the first picture
+        // A replay steps through the recording until the world reaches the time of this picture (or of --sim).
+        double until = videoPath ? clock + 1.0 / fps - 1e-6 : shot ? sim : gfx_time() - replayT0;
+        for (int first = 1;; first = 0) { // --sim fast-forwards the world before the first picture
+            RecFrame fr = {0};
+            if (rep) {
+                if ((videoPath ? clock : simT) >= until) break;
+                if (fread(&fr, sizeof fr, 1, rep) != 1) { repEnd = 1; break; }
+                in = repIn = fr.in;
+            } else if (!first && !((shot && simLeft > 0) || --steps > 0)) break;
             simT += in.dt;
             if (autoplay == 1) { in.hand[0].sy = simT < 2.5f ? 1 : 0; in.hand[0].trigger = in.hand[1].trigger = 1; } // self-test: advance and fire
             if (autoplay == 2) in.ejectKey = simT > 1.0f && simT < 1.02f;                                              // self-test: eject
@@ -225,6 +341,17 @@ int main(int argc, char **argv) {
             if (autoplay == 4) { in.hand[0].sy = 1; in.hand[0].sx = 0.35f; }                                            // self-test: walk into the patrols
             if (autoplay == 6) { in.hand[1].a = simT < 1.0f; in.hand[0].trigger = simT > 2.0f; in.hand[1].aim = in.head; } // self-test: climb out, then repair straight ahead (aim with --head)
             game_update(&in);
+            v3 where = game_rig().p;
+            if (rec) {
+                RecFrame f = {in, where};
+                fwrite(&f, sizeof f, 1, rec);
+                if (++recFrames % 90 == 0) fflush(rec); // a crash or a killed game loses a second at most
+            }
+            if (rep && !drifted && memcmp(&where, &fr.check, sizeof where)) {
+                drifted = 1;
+                fprintf(stderr, "replay: the fight went its own way %.1f s in, so from here on it may not match what was played\n"
+                                "        (a recording plays back exactly only with the build and shapes it was made with)\n", simT);
+            }
             simLeft -= in.dt;
             if (videoPath) { // the sound of exactly this step, kept only once recording has begun
                 clock += in.dt;
@@ -232,9 +359,14 @@ int main(int argc, char **argv) {
                 int n = (int)audioAcc;
                 audioAcc -= n;
                 short buf[2 * 600];
-                if (wout) { audio_render(buf, n); if (recording) { fwrite(buf, 4, n, wout); wavFrames += n; } }
+                for (int k; wout && n > 0; n -= k) { // in pieces: a replayed frame played in a window can be 50 ms long
+                    k = n < 600 ? n : 600;
+                    audio_render(buf, k);
+                    if (recording) { fwrite(buf, 4, k, wout); wavFrames += k; }
+                }
             }
-        } while ((shot && simLeft > 0) || --steps > 0);
+        }
+        if (repEnd) break;
         if (!recording) continue;
 
         if (camMode) { // the scripted camera
@@ -270,8 +402,16 @@ int main(int argc, char **argv) {
         double g0 = gfx_time();
         if (flat) {
             int views = bench ? 2 : 1;
+            xf head = in.head;
+            if (rep && smooth > 0) { // your own view, steadied: every small turn of a head is too shaky to watch on a screen
+                float fdt = videoPath ? 1.0f / fps : (float)(now - lastRender);
+                headSm = headFresh ? in.head.q : qnlerp(headSm, in.head.q, 1 - expf(-fdt / smooth));
+                headFresh = 0;
+                head.q = headSm;
+            }
+            lastRender = now;
             for (int e = 0; e < views; e++) {
-                View v = {camMode ? game_cam : xfmul(rig, XF(vadd(in.head.p, V3(e * 0.064f, 0, 0)), in.head.q)), -tanH, tanH, -tanV, tanV};
+                View v = {camMode ? game_cam : xfmul(rig, XF(vadd(head.p, V3(e * 0.064f, 0, 0)), head.q)), -tanH, tanH, -tanV, tanV};
                 render_view(&scene, &v, flatTex, fw, fh, 0);
             }
             if (bench) { glFinish(); gpuSum += gfx_time() - g0; }
@@ -326,11 +466,19 @@ int main(int argc, char **argv) {
         }
         if (maxFrames && frames >= maxFrames) break;
     }
+    if (rec) {
+        fclose(rec);
+        printf("record: %ld frames, %.0f s, in %s\n        watch it again: mechvr --replay %s\n", recFrames, simT, recName, recName);
+    }
+    if (rep) {
+        fclose(rep);
+        if (repEnd) printf("replay: reached the end of the recording\n");
+    }
     if (vout) fclose(vout);
     if (wout) { fseek(wout, 0, SEEK_SET); write_wav_header(wout, wavFrames); fclose(wout); }
     if (videoPath) fprintf(stderr, "recorded %d frames (%.1f s)\n", written, written / (float)fps);
     audio_shutdown();
     if (!flat) xr_shutdown();
-    if (bench || shot || videoPath) game_report();
+    if (bench || shot || videoPath || rec || rep) game_report();
     return 0;
 }

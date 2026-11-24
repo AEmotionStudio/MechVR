@@ -21,3 +21,6 @@ dist/
 
 # editor settings
 .vscode/
+
+# recordings of play (--record)
+recordings/

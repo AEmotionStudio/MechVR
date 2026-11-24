@@ -326,6 +326,22 @@ tools/fit.sh joined.mp4 small.mp4 9.5  # shrink to fit 9.5 MB (Discord's free li
 
 The [clips](#-clips) above were made like this, for example a low shot of the worm: `tools/record.sh wormB.mp4 --sandbox --calm-mechs --worm 130 --sim 3 --len 30 --campos -10 2.5 14 --lookat worm --lookmix 0.2 --fov 72`. They were filmed in the fixed layout, before the waves, hence `--sandbox`.
 
+### Recording what you play
+
+Add `--record` when you play, in the headset or in a window. The game saves what you do (your head, hands and buttons, about 1.5 MB a minute) rather than video, so it costs the headset nothing. Quit as usual, or close the game's window, to stop.
+
+```bash
+./mechvr --record                                   # play; saves recordings/mechvr-<date>-<time>.mvr
+./mechvr --replay recordings/<file>.mvr             # watch it again in a window
+tools/record.sh eyes.mp4 --replay recordings/<file>.mvr                   # film it from your own eyes, steadied
+tools/record.sh chase.mp4 --replay recordings/<file>.mvr --chase 16 6 3   # the same fight from behind your mech
+```
+
+*   A replay plays the fight again exactly, so one fight can be filmed from as many cameras as you like and cut together with `tools/cut.sh`.
+*   A replay is filmed to its end unless `--len` says otherwise; `--sim` skips ahead first. The recording keeps the options that shaped the world (`--build`, `--horde` and so on), so you do not give them again.
+*   `--smooth s` sets how much your own view is steadied for the screen (default 0.15 s; 0 shows every movement of your head).
+*   A recording plays back exactly only with the build and shapes it was made with. If either has changed, the replay says when the fight starts to go its own way.
+
 ---
 
 ## 🧪 Testing options
