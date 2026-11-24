@@ -99,6 +99,30 @@ A mech more than about 110 m away is drawn as up to four flat cards that face yo
 - With 120 extra mechs in view, both eyes take about 6.9 ms with cards and 9.3 ms without (6.4 ms with no extra mechs). `screenshots/cards-vs-traced.png` shows the same view both ways.
 - Try it: `./mechvr --flat --horde 120 --calm`, and add `--nocards` to compare.
 
+## Recording videos
+
+The game can film itself: a fixed 1/90 s step per tick, frames piped into ffmpeg, the synthesized sound saved alongside, and a scripted camera and pilot. The same options always replay the same fight, so one fight can be filmed from several cameras and cut together.
+
+```
+tools/record.sh out.mp4 [options]      # near-lossless clip with sound (SIZE=1280x720 FPS=30 by default)
+tools/cut.sh joined.mp4 a.mp4 0 5 b.mp4 5 9 ...   # join pieces, with fades
+tools/fit.sh joined.mp4 small.mp4 9.5  # shrink to fit 9.5 MB (Discord's free limit is 10 MB)
+```
+
+| Option | |
+|---|---|
+| `--len s` | length to record (after `--sim`, which fast-forwards first) |
+| `--pilot` | a scripted pilot looks at the nearest enemy, turns to it, closes in and fires |
+| `--eject-at s` | eject at that time |
+| `--campos x y z`, `--drift x y z` | a placed camera, optionally moving (metres per second) |
+| `--orbit r h deg/s start` | circle the look target |
+| `--chase back up side` | ride behind your mech |
+| `--lookat x y z` or `worm`, `me`, `enemy` | what the camera looks at (smoothed) |
+| `--lookmix k` | look part way towards your mech, to keep both in frame |
+| `--fov deg` | horizontal field of view |
+
+The clips in `videos/` were made like this, for example the low worm shot: `tools/record.sh wormB.mp4 --calm-mechs --worm 130 --sim 3 --len 30 --campos -10 2.5 14 --lookat worm --lookmix 0.2 --fov 72`.
+
 ## Editing shapes in Blender
 
 Every shape the game draws (mech parts, cockpit, rocks, hands, pistol) is listed in `assets/shapes.txt`: a few boxes, cylinders, spheres and capsules per shape that add to it or cut from it. The same file holds the joints (where each part attaches to the next) and named points such as weapon muzzles and the pilot's eye. The file is built into the program, and can be edited by hand or in Blender.

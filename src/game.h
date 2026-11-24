@@ -19,12 +19,18 @@ typedef struct {
 
 void game_init(int demo, int startOnFoot);
 int game_piloting(void);
+float game_throttle(void);           // where your throttle lever sits, -0.4 .. 1
 void game_update(const Input *in);
 void game_scene(Scene *s, const Input *in);
 xf game_rig(void);                    // play space -> world
 void game_set_cam(v3 pos, float yaw); // put the free camera somewhere (screenshots)
 void game_haptics(float *left, float *right);
 extern int game_look;
+// Recording: draw the world for a camera that is not the player's eyes (no cockpit, no hands, your mech drawn whole).
+extern int game_outside;
+extern xf game_cam;
+enum { FOCUS_WORM, FOCUS_ME, FOCUS_ENEMY };
+int game_focus(int what, float range, v3 *out); // where something worth looking at is; 0 if there is none (ENEMY: within range)
 extern int game_calm;       // for measuring: 1 = enemies never attack, 2 = only the small ones do
 extern int game_cards;      // 1 = draw distant mechs as flat cards (default)
 void game_swarm(int n);     // call before game_init: add n extra drones and n extra crawlers for testing

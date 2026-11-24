@@ -11,6 +11,7 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t thread;
 static snd_pcm_t *pcm;
 static volatile int running;
+static int offline; // recording a video: no sound device, the recorder asks for samples as the game runs
 static v3 earPos, earRight = {1, 0, 0};
 static float engTarget, engPitch, alarmOn; // set by the game
 static float eng, engPh, engLp, alarmT, windLp, beatT;
@@ -61,12 +62,9 @@ static float voice_sample(Voice *v) {
     return s;
 }
 
-static void *mix_thread(void *arg) {
-    short buf[CHUNK * 2];
+static void mix(short *buf, int n) { // n stereo frames
     const float dt = 1.0f / RATE, TAU = 6.2831853f;
-    while (running) {
-        pthread_mutex_lock(&lock);
-        for (int i = 0; i < CHUNK; i++) {
+        for (int i = 0; i < n; i++) {
             float l = 0, r = 0;
             for (int k = 0; k < NVOICE; k++)
                 if (voice[k].on) { float s = voice_sample(&voice[k]); l += s * voice[k].gl; r += s * voice[k].gr; }
@@ -93,11 +91,25 @@ static void *mix_thread(void *arg) {
             buf[i * 2] = (short)(l * 30000);
             buf[i * 2 + 1] = (short)(r * 30000);
         }
+}
+
+static void *mix_thread(void *arg) {
+    short buf[CHUNK * 2];
+    while (running) {
+        pthread_mutex_lock(&lock);
+        mix(buf, CHUNK);
         pthread_mutex_unlock(&lock);
         snd_pcm_sframes_t n = snd_pcm_writei(pcm, buf, CHUNK);
         if (n < 0) snd_pcm_recover(pcm, (int)n, 1);
     }
     return arg;
+}
+
+void audio_offline(void) { offline = 1; }
+void audio_render(short *out, int frames) {
+    pthread_mutex_lock(&lock);
+    mix(out, frames);
+    pthread_mutex_unlock(&lock);
 }
 
 void audio_init(void) {
@@ -117,7 +129,7 @@ void audio_shutdown(void) {
 }
 
 void audio_play(int type, v3 pos, float gain) {
-    if (!pcm) return;
+    if (!pcm && !offline) return;
     v3 d = vsub(pos, earPos);
     float dist = vlen(d), pan = dist > 0.3f ? vdot(d, earRight) / dist : 0;
     float g = gain * 14.0f / (14.0f + dist); // big machines: loud nearby, still audible far away

@@ -6,6 +6,8 @@ enum { SND_CANNON, SND_PLASMA, SND_PISTOL, SND_HIT, SND_BOOM, SND_STEP, SND_WHOO
 void audio_init(void);
 void audio_shutdown(void);
 void audio_play(int type, v3 pos, float gain);                                  // a sound at a place in the world
+void audio_offline(void);                   // record instead of play: nothing is heard, audio_render hands out the samples
+void audio_render(short *out, int frames);  // mix this many stereo frames (48 kHz, 16-bit) of what is playing now
 void audio_body(int living);                                                    // what you are riding: 0 a machine (reactor hum), 1 a living mech (heartbeat and breath)
 void audio_listener(v3 pos, v3 right, float engine, float pitch, float alarm);  // where your ears are, plus cockpit loops
 #endif

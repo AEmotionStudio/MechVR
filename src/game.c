@@ -31,6 +31,8 @@ static int nmech = 5, horde, swarm;
 static int myBody = CH_MACHINE, myArm[2] = {ARM_CANNON, ARM_PLASMA}; // what your own mech starts as
 static float wormDist = 380; // how far ahead of the start it lives; 0 = no worm
 int game_cards = 1; // draw distant mechs as flat cards
+int game_outside;
+xf game_cam;
 int game_calm;      // test option: 1 = nobody attacks, 2 = enemy mechs do not attack but the small enemies do
 static Particle ptc[MAXPTC];
 static int nptc;
@@ -124,6 +126,7 @@ static void update_rig(void) {
 }
 xf game_rig(void) { return rigNow; }
 int game_piloting(void) { return pl.mode == MODE_PILOT; }
+float game_throttle(void) { return pl.throttle; }
 void game_haptics(float *l, float *r) { *l = hapL; *r = hapR; hapL = hapR = 0; }
 static int deaths;
 void game_loadout(int body, int armL, int armR) {
@@ -1234,16 +1237,18 @@ void game_scene(Scene *s, const Input *in) {
     s->npart = s->nptc = s->nshadow = 0;
     s->time = gtime;
     s->look = game_look;
-    s->head = xfpt(rig, in->head.p);
+    s->head = game_outside ? game_cam.p : xfpt(rig, in->head.p);
     {
         float sp = pl.mode == MODE_PILOT ? fabsf(mech[pl.mech].speed) / TOP_SPEED : 0;
+        float hum = pl.mode != MODE_PILOT ? 0 : game_outside ? clampf(1 - vlen(vsub(game_cam.p, mech[pl.mech].pos)) / 45, 0, 1) * 0.5f : 1;
+        v3 right = qrot(game_outside ? game_cam.q : qmul(rig.q, in->head.q), V3(1, 0, 0));
         audio_body(mech[pl.mech].chassis == CH_BIO); // a living mech has a heartbeat where a machine has a reactor hum
-        audio_listener(s->head, qrot(qmul(rig.q, in->head.q), V3(1, 0, 0)), pl.mode == MODE_PILOT ? 1.0f : 0.0f, sp, pl.mode == MODE_PILOT ? pl.alarm : 0);
+        audio_listener(s->head, right, hum, sp, pl.mode == MODE_PILOT && !game_outside ? pl.alarm : 0);
     }
     s->vignette = in->vr && pl.mode == MODE_EJECT ? 0.7f : 0; // edge darkening only during the eject flight
-    s->fade = maxf(pl.fade, pl.hurt * 0.4f);
+    s->fade = game_outside ? pl.fade : maxf(pl.fade, pl.hurt * 0.4f); // the red flash when you are hit is only for your own eyes
     s->fadeCol = pl.fade > pl.hurt * 0.4f ? V3(0.02f, 0.02f, 0.03f) : V3(0.9f, 0.1f, 0.05f);
-    int piloting = pl.mode == MODE_PILOT;
+    int piloting = pl.mode == MODE_PILOT, cabin = piloting && !game_outside; // cabin: drawn from inside the cockpit
 
     s->nimp = 0;
     for (int i = 0; i < nmech; i++) {
@@ -1274,7 +1279,7 @@ void game_scene(Scene *s, const Input *in) {
             }
         }
         for (int p = 0; p < P_COUNT && !m->far; p++) {
-            if (m->gone[p] || (piloting && i == pl.mech && p == P_TORSO)) continue; // you sit inside your own hull
+            if (m->gone[p] || (cabin && i == pl.mech && p == P_TORSO)) continue; // you sit inside your own hull
             DrawPart *d = push(s, mech_shape(m, p), m->world[p], m->team);
             d->flip = mech_flip(m, p);
             if (p == P_TORSO && d->shape->bio && dist < 90) d->scale = 1 + 0.012f * sinf(gtime * 1.7f + m->seed); // it breathes
@@ -1298,7 +1303,7 @@ void game_scene(Scene *s, const Input *in) {
         }
     }
 
-    if (piloting) {
+    if (cabin) {
         Mech *m = &mech[pl.mech];
         xf a = cockpit_anchor(m);
         const int ckThr = mech_cockpit(m, CKP_THROTTLE), ckStk = mech_cockpit(m, CKP_STICK), ckEj = mech_cockpit(m, CKP_EJECT);
@@ -1331,7 +1336,7 @@ void game_scene(Scene *s, const Input *in) {
             v3 rp = vadd(pl.aim, vmul(toHead, minf(1.0f, pl.aimDist * 0.05f)));
             s->ptc[s->nptc++] = (DrawParticle){rp.x, rp.y, rp.z, maxf(0.05f, pl.aimDist * 0.014f), 0, PT_RETICLE, 0, 0};
         }
-    } else {
+    } else if (!game_outside) {
         if (in->hand[1].tracked && pl.mode == MODE_FOOT) push(s, S_PISTOL, pistol_xf(rig, &in->hand[1]), 0)->texel = 0.006f;
         for (int h = 0; h < 2; h++) { // the pistol hand is always closed
             int fist = (h && pl.mode == MODE_FOOT) || in->hand[h].squeeze > 0.5f;
@@ -1381,4 +1386,30 @@ void game_report(void) { // one line for test runs: how the fight is going
     printf("report: arms %s / %s; ", me->gone[P_ARM_L] ? "none" : ARM[me->arm[0]], me->gone[P_ARM_R] ? "none" : ARM[me->arm[1]]);
     printf("report: %s, your mech torso %.0f of 160, you %.0f of 100, restarts %d; left: %d enemy mechs, %d drones, %d crawlers, %d turrets, worm %.0f of 900 (head at %.0f %.0f %.0f, heading %.2f)\n",
            pl.mode == MODE_PILOT ? "piloting" : "on foot", mech[0].alive ? mech[0].hp[P_TORSO] : 0, pl.hp, deaths, mechs, kind[0], kind[1], kind[2], worm.alive ? worm.hp : 0, worm.p.x, worm.p.y, worm.p.z, worm.yaw);
+}
+
+int game_focus(int what, float range, v3 *out) {
+    if (what == FOCUS_WORM) {
+        if (!worm.alive) return 0;
+        *out = worm.p;
+        out->y = maxf(out->y, world_height(out->x, out->z) + 1); // under the sand: the mound over its head
+        return 1;
+    }
+    v3 me = pl.mode == MODE_PILOT ? xfpt(mech[pl.mech].world[P_TORSO], V3(0, 1.3f, 0)) : vadd(rigNow.p, V3(0, 1.2f, 0));
+    if (what == FOCUS_ME) { *out = me; return 1; }
+    float best = range;
+    int found = 0;
+    for (int i = 0; i < nmech; i++) {
+        const Mech *m = &mech[i];
+        v3 c = xfpt(m->world[P_TORSO], V3(0, 1.0f, 0));
+        float d = vlen(vsub(c, me));
+        if (m->alive && m->team == 1 && m->cook <= 0 && d < best) { best = d; *out = c; found = 1; }
+    }
+    for (int i = 0; i < nbot; i++) {
+        if (!bot[i].alive) continue;
+        v3 c = bot_xf(&bot[i]).p;
+        float d = vlen(vsub(c, me));
+        if (d < best) { best = d; *out = c; found = 1; }
+    }
+    return found;
 }
