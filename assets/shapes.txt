@@ -36,7 +36,7 @@ box     1.55 1.2 0.35          0.12 0.42 0.6        0.02   0 0 0      sub 0     
 box     -1.55 1.2 0.35         0.12 0.42 0.6        0.02   0 0 0      sub 0      frame
 box     0 0.72 -1.33           0.9 0.09 0.06        0.02   0 0 0      add 0      accent  # stripe under the canopy
 
-shape ARM_L at -2.1 1.6 0.1 on TORSO   # twin autocannon, made as a left arm (drawn mirrored on a right shoulder). origin: shoulder joint
+shape ARM_L at -2.1 1.6 0.1 on TORSO   # twin autocannon. origin: shoulder joint
 point MUZZLE -0.35 -0.75 -3.2         # shots leave here, between the two barrels
 box     -0.35 0.25 0           0.5 0.55 0.75        0.2    0 0 0      add 0      armor
 box     -0.35 -0.5 -0.2        0.36 0.5 0.7         0.1    0 0 0      add 0      armor2
@@ -48,7 +48,7 @@ cyl     -0.15 -0.75 -3.05      0.18 0.12 0.18       0.03   90 0 0     add 0     
 cyl     -0.35 -0.3 0.62        0.4 0.3 0.4          0.05   0 0 -90    add 0      armor2
 box     -0.86 0.25 0           0.03 0.25 0.45       0.01   0 0 0      add 0      accent
 
-shape ARM_R at 2.1 1.6 0.1 on TORSO   # plasma pod, made as a right arm (drawn mirrored on a left shoulder). origin: shoulder joint
+shape ARM_R at 2.1 1.6 0.1 on TORSO   # plasma pod. origin: shoulder joint
 point MUZZLE 0.4 -0.7 -2              # plasma bolts leave here
 box     0.35 0.25 0            0.5 0.55 0.75        0.2    0 0 0      add 0      armor
 box     0.35 -0.5 -0.2         0.36 0.5 0.7         0.1    0 0 0      add 0      armor2
