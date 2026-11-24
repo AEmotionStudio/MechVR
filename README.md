@@ -2,7 +2,7 @@
 
 # MechVR
 
-**A VR mech game where every shape, effect and sound is made by code. Pilot from a working cockpit, shoot the arms off other mechs and graft them onto your own, eject and fight on foot, and keep clear of the sand worm.**
+**A VR mech game where every shape, effect and sound is made by code. Hold off growing waves of enemies from a working cockpit, shoot the arms off other mechs and graft them onto your own, climb out to weld your mech back together, and keep clear of the sand worm.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge&logo=linux&logoColor=white)](#-compatibility)
@@ -20,7 +20,7 @@
 ![Piloting from the cockpit](https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-cockpit.webp)  
 *From the cockpit: autocannon and plasma against crawlers, drones and a patrol, then an eject from the smoking mech. [▶ Watch with sound](https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-cockpit.mp4)*
 
-[Clips](#-clips) • [Features](#-features) • [Compatibility](#-compatibility) • [Installation](#-installation) • [Controls](#-controls) • [Mechs and grafting](#-bodies-arms-and-grafting) • [Modding](#-editing-shapes-in-blender) • [Recording](#-recording-videos) • [License](#-license)
+[Clips](#-clips) • [Features](#-features) • [Compatibility](#-compatibility) • [Installation](#-installation) • [Controls](#-controls) • [Waves and repair](#-waves-and-repair) • [Mechs and grafting](#-bodies-arms-and-grafting) • [Modding](#-editing-shapes-in-blender) • [Recording](#-recording-videos) • [License](#-license)
 
 </div>
 
@@ -43,8 +43,9 @@ The game films these itself, sound included (see [Recording videos](#-recording-
 ## ✨ Features
 
 *   **A cockpit you work with your hands.** Grab the throttle and the stick, pull the striped handle overhead to eject, and read your damage off the dashboard.
+*   **Waves that grow.** Crawlers first, then drones, mechs dropped from the sky and turrets, and the sand worm every fifth wave, with a short break between waves to repair, take arms or change mechs.
 *   **Damage part by part.** Torso, hips, legs and each arm go from intact to damaged to critical (trailing smoke) to destroyed. An arm that is shot off falls to the ground and takes its weapon with it.
-*   **Eject and keep fighting.** Fight on with a pistol, then climb into another mech. Eject from a mech whose torso is critical and its reactor blows a couple of seconds later.
+*   **Eject, climb out, repair.** Eject and fight on with a pistol, then climb into another mech. Or climb out and weld your own mech back together with a torch, a stage at a time, out in the open. Eject from a mech whose torso is critical and its reactor blows a couple of seconds later; climbing out does not set it off.
 *   **Two bodies, four arms, any combination.** A steel machine and a living creature. Shoot an arm off any mech and graft it onto your own.
 *   **Plenty to fight.** Patrolling mechs, packs of crawlers, flights of drones, long-range turrets, and a 70 m sand worm.
 *   **No asset files.** Everything on screen and every sound comes from code; there are no image, model or audio files. The mechs, cockpits and rocks are one short text file that you can edit by hand or in Blender while the game reloads it live.
@@ -118,6 +119,7 @@ Every build checks each shader with `glslangValidator` and the shapes file with 
 ./mechvr          # in the headset (start SteamVR first, or let it start on its own)
 ./mechvr --flat   # in a window, mouse and keyboard
 ./mechvr --foot   # start on foot beside your mech instead of in the cockpit
+./mechvr --wave 5 # start at a later wave (5 brings the sand worm)
 ```
 
 ### Windows (untested)
@@ -164,6 +166,9 @@ This writes `dist/MechVR-windows/` and `dist/MechVR-windows.zip`. Take `x64/bin/
 | Fire pistol on foot | Right trigger |
 | Board a mech (stand under a light pillar) | A |
 | Graft an arm lying in reach | A |
+| Climb out, leaving the mech standing | Hold A for a moment (when no arm is in reach) |
+| Repair a mech of your side, on foot | Point your left hand at it and hold the left trigger |
+| See the wave, your health and the part you are repairing, on foot | Look at your left wrist |
 | Switch look (smooth / texel / chunky) | B |
 | Restart | Menu button while holding the left grip |
 
@@ -176,13 +181,36 @@ This writes `dist/MechVR-windows/` and `dist/MechVR-windows.zip`. Take `x64/bin/
 | Look around | Hold the right mouse button and drag, or the arrow keys |
 | Aim | Mouse pointer |
 | Fire plasma / pistol | Left mouse button |
-| Fire autocannon | Space |
+| Fire the left arm; on foot, the repair torch | Space (on foot, aim the torch with the mouse pointer) |
 | Eject | X |
 | Board a mech, graft an arm | E |
+| Climb out | Hold E |
 | Look presets | 1, 2, 3 |
 | Free camera | F (then W A S D, Space up, Shift down) |
 | Restart | R |
 | Quit | Esc |
+
+---
+
+## 🌊 Waves and repair
+
+The game is a run of waves. You start in your mech with a spare beside you, and the first wave arrives after 15 seconds.
+
+*   **Each wave is bigger.** Wave 1 is a pack of crawlers. Drones join from wave 2, a mech dropped from the sky from wave 3, and turrets dropped within reach of you from wave 4. From wave 6 some come from the side. Every fifth wave brings the sand worm, tougher each time, with a lighter escort.
+*   **Between waves** you have 25 seconds to repair, graft arms or change mechs. A chime means a wave is beaten, three beeps count down the last seconds of the break, and a horn sounds as the next wave arrives.
+*   **Reading it:** the top of the cockpit screen shows the wave on the left and, on the right, how many enemies are left (red) or the seconds to the next wave (amber). On foot the same numbers are on the screen on your left wrist, with your health on its left edge and the part under your torch on its right.
+*   **Stragglers:** when the last few enemies of a wave keep away for 15 seconds, amber pillars of light mark them.
+*   **New mechs:** after a wave, if you have no mech to spare, a fresh one is dropped nearby. On foot with no mech left at all, one is sent within half a minute.
+*   **Dying** starts the run again from wave 1.
+
+**Repairing your mech**
+
+*   **Climb out** by holding **A** (window: **E**) for a moment when no arm is in reach. You land beside the mech, facing it, and it stays standing. Unlike the eject, climbing out does not set off a critical reactor, so a badly hurt mech can be saved.
+*   **The torch:** on foot, point your left hand at a mech of your side and hold the left trigger (window: hold **Space** and aim with the mouse). It reaches 14 m and restores 14 hit points a second to the part it touches. Its holes glow and close up as the part comes back, and each part steps back from critical to damaged to intact, with a chime at each step. A part that has come off cannot be repaired; graft another arm instead.
+*   You are on foot while you work, so the break between waves is the time for it.
+*   To try it straight away, `./mechvr --hurt 3` starts with every part of your mech critical.
+
+`--sandbox` gives the fixed layout of earlier builds instead of waves (see [What is in the world](#-what-is-in-the-world)).
 
 ---
 
@@ -205,21 +233,23 @@ A mech is a body plus whatever arm is mounted on each shoulder. Any arm fits eit
 *   The left trigger fires whatever is on the left shoulder, the right trigger the right.
 *   **Grafting:** shoot an arm off any mech and it lies on the ground. From your cockpit, a thin light marks arms you could take; walk your mech up to one (within 9 m, the light grows and pulses) and press **A** (window: **E**). It goes onto an empty shoulder if you have one; otherwise it replaces the arm on the side it lies, and your old arm drops in its place, so you can swap back. A grafted arm keeps its battle damage and comes with 70 of 100 armour.
 *   **The living cockpit:** riding a living body, you sit in a chamber of flesh and look out through a bone-rimmed mouth, past its ribs and upper teeth. The throttle, stick and eject pull are bone and sinew in the same places as the machine's, the damage screen sits in an organ in front of you, and the reactor hum is replaced by a heartbeat that quickens as it runs.
-*   The spare mech behind you is a living one. One patrol is a machine with a needler and plasma, the other is living with a spore arm and a needler.
+*   The spare mech behind you is a living one. Spares dropped in later, and the enemy mechs that come with the waves, are built at random. In the fixed layout (`--sandbox`), one patrol is a machine with a needler and plasma, the other is living with a spore arm and a needler.
 *   Try a build directly: `./mechvr --build 1 2 3` (body 0 machine or 1 living, then left and right arm: 0 cannon, 1 plasma, 2 needler, 3 spore).
 
 ---
 
 ## 🌍 What is in the world
 
+In the wave game the enemies below arrive in waves (see [Waves and repair](#-waves-and-repair)). The numbers and places given here are those of the fixed layout, `--sandbox`.
+
 *   **Mechs:** your mech (olive), a practice target that never shoots back (red, straight ahead), two red patrols that attack when you get within about 120 m or shoot them, and a spare blue mech behind you to the left.
 *   **Crawlers** (11, in three packs): four-legged machines about a metre tall. They run at you, stop at about 13 m (8 m from a mech) and circle while lobbing slow plasma you can sidestep. Six pistol shots or a few cannon rounds kill one, and your mech can simply walk over them.
 *   **Drones** (6, in two flights): they circle overhead and fire short bursts. A nuisance to a mech, dangerous on foot. Three pistol shots each.
 *   **Turrets** (3, far out): fixed guns with a heavy shell every 2.6 seconds out to 220 m. They take about seven plasma hits. The shells are slow, so keep moving.
 *   Hitting one of a group wakes the rest of it. Small enemies show holes where they are hit and smoke when badly damaged.
-*   **The sand worm** lives about 380 m ahead and is about 70 m long. Under the sand it shows as a moving mound with dust and thumps; every several seconds it breaches in a long arc. It hunts you once you come within 220 m or shoot it: either an arc that comes down where you were standing when it launched, or straight up from underneath if you let it get within 14 m. A bite costs a mech 45 torso and 30 leg armour, and a person on foot 75 of 100 health, so keep moving. It has 900 health; shots into its open mouth count three times. It also eats crawlers and bites enemy mechs that get in its way.
+*   **The sand worm** lives about 380 m ahead (in the wave game it comes with every fifth wave instead) and is about 70 m long. Under the sand it shows as a moving mound with dust and thumps; every several seconds it breaches in a long arc. It hunts you once you come within 220 m or shoot it: either an arc that comes down where you were standing when it launched, or straight up from underneath if you let it get within 14 m. A bite costs a mech 45 torso and 30 leg armour, and a person on foot 75 of 100 health, so keep moving. It has 900 health, 300 more with each later worm wave; shots into its open mouth count three times. It also eats crawlers and bites enemy mechs that get in its way.
 *   **Damage:** each mech part has four damage stages: intact, damaged, critical (trails smoke), destroyed. Arms fall off and take their weapon with them; a fallen arm can be grafted onto your own mech. Losing the torso, hips or a leg destroys the mech.
-*   If you eject from a mech whose torso is critical, its reactor explodes a couple of seconds later.
+*   If you eject from a mech whose torso is critical, its reactor explodes a couple of seconds later. Climbing out does not set it off.
 
 ---
 
@@ -294,7 +324,7 @@ tools/fit.sh joined.mp4 small.mp4 9.5  # shrink to fit 9.5 MB (Discord's free li
 | `--lookmix k` | look part way towards your mech, to keep both in frame |
 | `--fov deg` | horizontal field of view |
 
-The [clips](#-clips) above were made like this, for example a low shot of the worm: `tools/record.sh wormB.mp4 --calm-mechs --worm 130 --sim 3 --len 30 --campos -10 2.5 14 --lookat worm --lookmix 0.2 --fov 72`.
+The [clips](#-clips) above were made like this, for example a low shot of the worm: `tools/record.sh wormB.mp4 --sandbox --calm-mechs --worm 130 --sim 3 --len 30 --campos -10 2.5 14 --lookat worm --lookmix 0.2 --fov 72`. They were filmed in the fixed layout, before the waves, hence `--sandbox`.
 
 ---
 
@@ -310,13 +340,18 @@ The [clips](#-clips) above were made like this, for example a low shot of the wo
 --head yaw pitch        head direction for the picture (radians)
 --cam x y z yaw pitch   free camera position for the picture
 --demo n                pre-damage the practice target (higher = more damage)
---auto 1..5             scripted input: 1 advance and fire, 2 eject, 3 board, 4 walk into the patrols, 5 advance and graft any arm in reach
---bench                 render two headset-sized views per frame and print timings. With --shot or --bench the
-                        program ends with a one-line report: your health and how many enemies are left
+--auto 1..6             scripted input: 1 advance and fire, 2 eject, 3 board, 4 walk into the patrols, 5 advance and graft any arm in reach,
+                        6 climb out and hold the repair torch (aim it with --head, for example --head 0 0.75)
+--bench                 render two headset-sized views per frame and print timings, always in the fixed layout. With --shot or
+                        --bench the program ends with a short report: your health, your mech's parts, the enemies left and the wave
+--sandbox               the fixed layout of earlier builds (patrols, packs, turrets, the worm far ahead) instead of waves
+--wave n                start the wave game at wave n
+--hurt 1|2|3            start with your mech damaged (3: every part critical), to try repairing
 --shapes file           read shapes from this file instead of the built-in copy, and again whenever it changes
 --horde n               add n extra enemy mechs (up to 128), scattered 130 to 600 m ahead
 --swarm n               add n extra drones and n extra crawlers (up to 64 each), scattered 80 to 400 m ahead
---worm metres           how far ahead the sand worm lives (default 380); 0 removes it
+--worm metres           how far ahead the sand worm lives (default 380); 0 removes it. In the wave game it is otherwise
+                        only in every fifth wave; giving --worm puts it there from the start as well
 --build body armL armR  what your mech starts as (see "Bodies, arms and grafting")
 --calm                  enemies keep patrolling and never attack
 --calm-mechs            enemy mechs never attack, the small enemies still do
@@ -337,8 +372,8 @@ The [clips](#-clips) above were made like this, for example a low shot of the wo
 | `src/gfx_win32.c` | Window, OpenGL context and input on Windows (Win32, WGL) |
 | `src/glfuncs.h` | The OpenGL functions Windows has to look up at startup |
 | `src/render.c` | Draw passes: sky, ground, parts, distant-mech cards, particles, outlines |
-| `src/mech.c` | Shape loading, skeleton, walk cycle, hit testing, damage |
-| `src/game.c` | Player, piloting, enemy mechs, small enemies (drones, crawlers, turrets), the sand worm, shots, debris, particles |
+| `src/mech.c` | Shape loading, skeleton, walk cycle, hit testing, damage and repair |
+| `src/game.c` | Player, piloting, waves, enemy mechs, small enemies (drones, crawlers, turrets), the sand worm, the repair torch, shots, debris, particles |
 | `src/world.c` | Terrain heights and rock placement |
 | `src/audio.c` | Sound synthesis, played through ALSA on Linux and waveOut on Windows |
 | `src/shaders/` | GLSL shaders, embedded into the program by `tools/embed.py` |

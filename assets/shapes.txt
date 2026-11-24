@@ -414,3 +414,10 @@ sphere  -0.55 -0.53 -0.853     0.03 0.03 0.03       0      0 0 0      add 0     
 sphere  -0.47 -0.53 -0.853     0.03 0.03 0.03       0      0 0 0      add 0      sac
 capsule 0.55 -0.55 -0.853      0.02 0.1 0.02        0      0 0 90     add 0      bone    # ridge
 sphere  0.55 -0.62 -0.84       0.03 0.03 0.03       0      0 0 0      add 0      sac
+
+shape WRIST at 6 1.2 4   # the screen on your left wrist when on foot: the wave, your health, the part under the repair torch. Faces +Z, top +Y
+box     0 0 -0.006             0.054 0.042 0.008    0.006  0 0 0      add 0      frame
+box     0 0 0.002              0.048 0.036 0.002    0.001  0 0 0      add 0      screen
+
+shape BEACON_FOE at 7.4 5 6   # amber light pillar over the last enemies of a wave, once they have kept away for a while
+capsule 0 0 0                  0.12 5 0.12          0      0 0 0      add 0      glow

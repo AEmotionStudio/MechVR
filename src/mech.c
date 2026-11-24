@@ -294,7 +294,7 @@ void mech_init(Mech *m, v3 pos, float yaw, int team) {
     m->alive = 1;
     m->seed = frand() * 40;
     m->phase = frand() * 6;
-    for (int i = 0; i < P_COUNT; i++) m->hp[i] = i == P_TORSO ? 160 : 100;
+    for (int i = 0; i < P_COUNT; i++) m->hp[i] = PART_HP(i);
     m->arm[0] = ARM_CANNON;
     m->arm[1] = ARM_PLASMA;
     mech_pose(m, 0);
@@ -326,7 +326,7 @@ void mech_pose(Mech *m, float dt) {
     }
     m->hipH = -low; // the lower sole rests on the ground
     m->pos.y = world_height(m->pos.x, m->pos.z);
-    xf root = XF(V3(m->pos.x, m->pos.y + m->hipH, m->pos.z),
+    xf root = XF(V3(m->pos.x, m->pos.y + m->hipH + m->drop, m->pos.z),
                  qmul(qaxis(V3(0, 1, 0), m->yaw), qaxis(V3(0, 0, 1), 0.03f * amp * sinf(m->phase))));
     m->world[P_PELVIS] = root;
     xf torso = xfmul(root, XF(shapes[cs[1]].at, qmul(qaxis(V3(0, 1, 0), m->torsoYaw), qaxis(V3(0, 0, 1), -0.02f * amp * sinf(m->phase)))));
@@ -395,7 +395,7 @@ int mech_imp_row(const Mech *m) {
 
 // ---- damage ---------------------------------------------------------------------------------------
 int mech_damage(Mech *m, int part, v3 local, float dmg) {
-    float max = part == P_TORSO ? 160.0f : 100.0f;
+    float max = PART_HP(part);
     m->hp[part] -= dmg;
     m->flash[part] = 1;
     float (*d)[4] = m->dent[part];
@@ -418,5 +418,31 @@ int mech_damage(Mech *m, int part, v3 local, float dmg) {
     float f = m->hp[part] / max;
     int st = f > 0.66f ? 0 : f > 0.33f ? 1 : f > 0 ? 2 : 3;
     if (st != m->stage[part]) { m->stage[part] = st; return st; }
+    return -1;
+}
+
+int mech_repair(Mech *m, int part, v3 local, float hp) {
+    float max = PART_HP(part), missing = max - m->hp[part], add = minf(hp, maxf(missing, 0)), holes = 0;
+    if (m->gone[part]) return -1;
+    float (*d)[4] = m->dent[part];
+    int best = -1;
+    for (int i = 0; i < m->ndent[part]; i++) {
+        holes += d[i][3];
+        if (best < 0 || vlen(vsub(local, V3(d[i][0], d[i][1], d[i][2]))) - d[i][3] <
+                            vlen(vsub(local, V3(d[best][0], d[best][1], d[best][2]))) - d[best][3]) best = i;
+    }
+    m->hp[part] += add;
+    if (best >= 0) { // the nearest hole closes, glowing at the edges while it is worked on
+        d[best][3] -= missing > 0.5f ? holes * add / missing : hp * 0.006f;
+        m->heat[part][best] = maxf(m->heat[part][best], 0.4f);
+        if (d[best][3] < 0.05f) { // closed
+            int last = --m->ndent[part];
+            memcpy(d[best], d[last], sizeof d[best]);
+            m->heat[part][best] = m->heat[part][last];
+        }
+    }
+    float f = m->hp[part] / max;
+    int st = f > 0.66f ? 0 : f > 0.33f ? 1 : 2;
+    if (st < m->stage[part]) { m->stage[part] = st; return st; }
     return -1;
 }

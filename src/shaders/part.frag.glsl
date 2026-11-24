@@ -29,8 +29,8 @@ uniform int uDentN;
 uniform int uStage;      // 0 intact, 1 damaged, 2 critical, 3 destroyed
 uniform vec3 uTintA, uTintB;
 uniform float uSeed, uFlash;
-uniform vec4 uAux;       // cockpit screen: x speed, y heading, z alarm, w power
-uniform vec4 uStat[3];   // cockpit screen: damage stage of each mech part
+uniform vec4 uAux;       // cockpit screen: x speed, y layout (0 cockpit, 1 wrist), z alarm, w power. The wrist: x the part under the torch, w your health
+uniform vec4 uStat[3];   // cockpit screen: damage stage of each mech part; [2].z the wave, [2].w enemies left (or minus the seconds to the next wave)
 uniform int uInterior;   // 1 = cockpit part: lit from the windshield, no haze
 uniform float uTexel;    // size of one surface cell for the texel look
 uniform vec4 uScr;       // cockpit screen: center xy and 1/size in part space
@@ -104,12 +104,38 @@ vec3 normalAt(vec3 p) {
                      k.yxy * map(p + k.yxy * e) + k.xxx * map(p + k.xxx * e));
 }
 
-// Cockpit display: a little damage diagram of the mech, a speed bar and warning text blocks.
+// 3 x 5 pixel digits, one bit per pixel, top row first
+const int DIGIT[10] = int[10](31599, 11415, 29671, 29391, 23497, 31183, 31215, 29257, 31727, 31695);
+// 1 where the number n (0..99) is lit: two digits whose lower left is cell o, each font pixel s cells across
+float number(vec2 g, vec2 o, float s, float n) {
+    vec2 q = floor((g - o) / s);
+    if (q.x < 0.0 || q.x > 6.0 || q.y < 0.0 || q.y > 4.0 || q.x == 3.0) return 0.0;
+    int v = int(clamp(n, 0.0, 99.0) + 0.5), tens = q.x < 3.0 ? 1 : 0;
+    if (tens == 1 && v < 10) return 0.0;
+    int d = tens == 1 ? v / 10 : v % 10, x = tens == 1 ? int(q.x) : int(q.x) - 4;
+    return float((DIGIT[d] >> (int(q.y) * 3 + 2 - x)) & 1); // q.y counts up from the bottom row, the bits from the top
+}
+
+// Cockpit display: a little damage diagram of the mech, a speed bar and warning text blocks, and in the wave game the
+// wave and how many are left. The wrist screen uses the same picture elements: your health, the torch's part, the wave.
 vec3 screenColor(vec2 uv) {
     vec3 bg = vec3(0.03, 0.10, 0.09), on = vec3(0.35, 1.0, 0.65);
     vec2 g = floor(uv * vec2(48.0, 36.0));
     vec2 c = (g + 0.5) / vec2(48.0, 36.0);
     vec3 col = bg + 0.02 * mod(g.y, 2.0);
+    float wave = uStat[2].z, left = uStat[2].w;
+    vec3 countCol = left > 0.0 ? vec3(1.0, 0.35, 0.2) : vec3(1.0, 0.75, 0.2) * (left > -3.5 && fract(uTime * 2.0) > 0.5 ? 0.35 : 1.0);
+    if (uAux.y > 0.5) { // the wrist
+        if (c.x > 0.05 && c.x < 0.12 && c.y > 0.1 && c.y < 0.9) // your health
+            col = (c.y - 0.1) / 0.8 < uAux.w ? (uAux.w < 0.3 ? vec3(1.0, 0.3, 0.2) : vec3(0.4, 0.8, 1.0)) : bg * 2.0;
+        if (uAux.x >= 0.0 && c.x > 0.88 && c.x < 0.95 && c.y > 0.1 && c.y < 0.9) // the part under the repair torch
+            col = (c.y - 0.1) / 0.8 < uAux.x ? on : bg * 2.0;
+        if (wave > 0.5) {
+            if (number(g, vec2(17.0, 20.0), 2.0, wave) > 0.5) col = on;
+            if (number(g, vec2(17.0, 5.0), 2.0, abs(left)) > 0.5) col = countCol;
+        }
+        return col;
+    }
     // part boxes: xy center, zw half size, in screen space
     const vec4 R[10] = vec4[10](vec4(.50, .50, .07, .05), vec4(.50, .68, .11, .11), vec4(.33, .68, .04, .10), vec4(.67, .68, .04, .10),
                                 vec4(.43, .38, .035, .07), vec4(.42, .24, .03, .07), vec4(.41, .13, .05, .025),
@@ -128,6 +154,10 @@ vec3 screenColor(vec2 uv) {
     if (c.x > 0.05 && c.x < 0.12 && c.y > 0.1 && c.y < 0.9) // power bar
         col = (c.y - 0.1) / 0.8 < uAux.w ? vec3(0.4, 0.8, 1.0) : bg * 2.0;
     if (uAux.z > 0.5 && c.y > 0.86 && c.x > 0.2 && c.x < 0.8 && fract(uTime * 3.0) < 0.6) col = vec3(1.0, 0.2, 0.1);
+    if (wave > 0.5) { // the wave on the left, how many are left (red) or the seconds to the next (amber) on the right
+        if (number(g, vec2(8.0, 29.0), 1.0, wave) > 0.5) col = on;
+        if (number(g, vec2(33.0, 29.0), 1.0, abs(left)) > 0.5) col = countCol;
+    }
     float glitch = step(0.985 - uAux.z * 0.25, hash12(vec2(g.y, floor(uTime * 20.0))));
     return mix(col, col.gbr * 1.5, glitch * step(0.3, uAux.z));
 }

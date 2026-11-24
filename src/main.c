@@ -58,6 +58,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--foot")) foot = 1;
         else if (!strcmp(argv[i], "--shapes") && i + 1 < argc) mech_shapes_live(argv[++i]);
         else if (!strcmp(argv[i], "--horde") && i + 1 < argc) game_horde(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--sandbox")) game_waves(0);
+        else if (!strcmp(argv[i], "--hurt") && i + 1 < argc) game_hurt(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--wave") && i + 1 < argc) game_first_wave(atoi(argv[++i]));
         else if (!strcmp(argv[i], "--swarm") && i + 1 < argc) game_swarm(atoi(argv[++i]));
         else if (!strcmp(argv[i], "--worm") && i + 1 < argc) game_worm((float)atof(argv[++i]));
         else if (!strcmp(argv[i], "--build") && i + 3 < argc) { game_loadout(atoi(argv[i + 1]), atoi(argv[i + 2]), atoi(argv[i + 3])); i += 3; }
@@ -66,7 +69,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--calm-mechs")) game_calm = 2;
         else if (!strcmp(argv[i], "--auto") && i + 1 < argc) autoplay = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--head") && i + 2 < argc) { headYaw = (float)atof(argv[++i]); cam[4] = (float)atof(argv[++i]); }
-        else if (!strcmp(argv[i], "--bench")) { bench = flat = 1; fw = 1628; fh = 1940; }
+        else if (!strcmp(argv[i], "--bench")) { bench = flat = 1; fw = 1628; fh = 1940; game_waves(0); } // measured in the fixed layout, to compare builds
         else if (!strcmp(argv[i], "--video") && i + 1 < argc) { videoPath = argv[++i]; flat = 1; }
         else if (!strcmp(argv[i], "--wav") && i + 1 < argc) wavPath = argv[++i];
         else if (!strcmp(argv[i], "--len") && i + 1 < argc) videoLen = (float)atof(argv[++i]);
@@ -86,7 +89,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--lookmix") && i + 1 < argc) lookMix = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--eject-at") && i + 1 < argc) ejectAt = (float)atof(argv[++i]);
         else if (!strcmp(argv[i], "--cam") && i + 5 < argc) { for (int k = 0; k < 5; k++) cam[k] = (float)atof(argv[++i]); haveCam = 1; }
-        else { printf("usage: mechvr [--flat] [--foot] [--look 0-2] [--demo 0-4] [--shot file.ppm] [--sim seconds] [--cam x y z yaw pitch] [--bench] [--frames n] [--shapes file] [--horde n] [--swarm n] [--worm metres] [--build body armL armR] [--calm] [--nocards]\n"
+        else { printf("usage: mechvr [--flat] [--foot] [--look 0-2] [--demo 0-4] [--shot file.ppm] [--sim seconds] [--cam x y z yaw pitch] [--bench] [--frames n] [--shapes file] [--horde n] [--swarm n] [--worm metres] [--build body armL armR] [--calm] [--nocards] [--sandbox] [--wave n] [--hurt 1-3]\n"
                                 "recording: --video file --wav file --len s --fps n --size w h --fov deg --campos x y z --drift x y z --orbit r h deg/s start\n"
                                 "           --chase back up side --lookat x y z|worm|me|enemy --lookmix k --pilot --eject-at s\n"); return 0; }
     }
@@ -186,6 +189,7 @@ int main(int argc, char **argv) {
             in.resetKey = g.pressed['r'];
             in.toggleFly = g.pressed['f'];
             in.boardKey = g.pressed['e'];
+            in.hand[1].a = g.key['e']; // held: climb out of your mech
             in.ejectKey = g.pressed['x'];
             for (int k = 1; k <= 3; k++) if (g.pressed['0' + k]) in.lookKey = k;
             if (ejectAt >= 0 && clock >= ejectAt && game_piloting()) { in.ejectKey = 1; ejectAt = -1; }
@@ -193,7 +197,8 @@ int main(int argc, char **argv) {
             if (pilot) {
                 in.hand[0].sx = sSx;
                 in.hand[0].sy = sSy;
-                in.hand[0].trigger = in.hand[1].trigger = sFire;
+                in.hand[1].trigger = sFire;
+                in.hand[0].trigger = game_piloting() ? sFire : 0; // on foot the left trigger is the repair torch, which the pilot leaves alone
             }
         } else {
             xr_begin(&xf_);
@@ -218,6 +223,7 @@ int main(int argc, char **argv) {
             if (autoplay == 3) in.boardKey = simT > 0.5f && simT < 0.52f;                                              // self-test: board
             if (autoplay == 5) { in.hand[0].sy = simT < 2.5f ? 1 : 0; in.boardKey = fmodf(simT, 0.5f) < 0.02f; }                // self-test: walk ahead, grafting any arm in reach
             if (autoplay == 4) { in.hand[0].sy = 1; in.hand[0].sx = 0.35f; }                                            // self-test: walk into the patrols
+            if (autoplay == 6) { in.hand[1].a = simT < 1.0f; in.hand[0].trigger = simT > 2.0f; in.hand[1].aim = in.head; } // self-test: climb out, then repair straight ahead (aim with --head)
             game_update(&in);
             simLeft -= in.dt;
             if (videoPath) { // the sound of exactly this step, kept only once recording has begun

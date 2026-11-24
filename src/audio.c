@@ -70,6 +70,22 @@ static float voice_sample(Voice *v) {
         v->ph += TAU * (34 + 26 * sinf(3.14159f * t / dur)) * dt;
         v->lp += (noise() - v->lp) * 0.03f;
         s = ((sinf(v->ph) > 0 ? 0.3f : -0.3f) + sinf(v->ph * 0.5f) * 0.9f + v->lp * 2.2f) * sinf(3.14159f * t / dur); break;
+    case SND_HORN: { dur = 2.4f; // a wave is coming: two long blasts on a low horn
+        float env = clampf(t / 0.08f, 0, 1) * clampf((0.95f - t) / 0.25f, 0, 1) + clampf((t - 1.2f) / 0.08f, 0, 1) * clampf((2.35f - t) / 0.3f, 0, 1);
+        v->ph += TAU * 98 * dt;
+        float tone = sinf(v->ph) + 0.5f * sinf(2 * v->ph) + 0.33f * sinf(3 * v->ph) + 0.6f * sinf(1.5f * v->ph);
+        v->lp += (tone - v->lp) * 0.25f;
+        s = v->lp * env * 0.42f; break; }
+    case SND_CHIME: { dur = 1.0f; // three rising notes
+        int k = t < 0.12f ? 0 : t < 0.24f ? 1 : 2;
+        float tt = t - 0.12f * k;
+        v->ph += TAU * (k == 0 ? 523.0f : k == 1 ? 659.0f : 784.0f) * dt;
+        s = sinf(v->ph) * expf(-tt * 6) * 0.4f + sinf(2 * v->ph) * expf(-tt * 10) * 0.12f; break; }
+    case SND_BEEP: dur = 0.14f; // the last seconds before a wave
+        s = (sinf(TAU * 988 * t) > 0 ? 0.2f : -0.2f) * clampf((0.13f - t) / 0.02f, 0, 1); break;
+    case SND_WELD: dur = 0.09f; // the repair torch: crackle over a buzz
+        v->ph += TAU * 120 * dt;
+        s = (noise() * (noise() > 0.55f ? 0.8f : 0.2f) + (sinf(v->ph) > 0 ? 0.1f : -0.1f)) * sinf(3.14159f * t / dur); break;
     default: dur = 0.03f;
         s = noise() * expf(-t * 160) * 0.5f; break;
     }

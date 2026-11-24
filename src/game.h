@@ -38,4 +38,7 @@ void game_report(void);     // print a one-line summary of the fight (for test r
 void game_worm(float dist); // call before game_init: how far ahead the sand worm lives (default 380 m); 0 = no worm
 void game_loadout(int body, int armL, int armR); // call before game_init: your mech's body (0 machine, 1 living) and arms (0 cannon, 1 plasma, 2 needler, 3 spore)
 void game_horde(int n);     // call before game_init: add n extra enemy mechs for testing
+void game_waves(int on);    // call before game_init: 1 = the wave game (default), 0 = the fixed sandbox layout of earlier builds
+void game_hurt(int level);  // call before game_init: your mech starts damaged, 1 lightly to 3 badly (to try repairing)
+void game_first_wave(int n); // call before game_init: the wave game starts at wave n
 #endif

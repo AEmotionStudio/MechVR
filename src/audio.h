@@ -2,7 +2,8 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 #include "mathx.h"
-enum { SND_CANNON, SND_PLASMA, SND_PISTOL, SND_HIT, SND_BOOM, SND_STEP, SND_WHOOSH, SND_CLICK, SND_ROAR };
+enum { SND_CANNON, SND_PLASMA, SND_PISTOL, SND_HIT, SND_BOOM, SND_STEP, SND_WHOOSH, SND_CLICK, SND_ROAR,
+       SND_HORN, SND_CHIME, SND_BEEP, SND_WELD }; // horn: a wave is coming; chime: a wave beaten or a part made whole; weld: the repair torch
 void audio_init(void);
 void audio_shutdown(void);
 void audio_play(int type, v3 pos, float gain);                                  // a sound at a place in the world

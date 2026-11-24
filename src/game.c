@@ -30,6 +30,10 @@ static Mech mech[NMECH];
 static int nmech = 5, horde, swarm;
 static int myBody = CH_MACHINE, myArm[2] = {ARM_CANNON, ARM_PLASMA}; // what your own mech starts as
 static float wormDist = 380; // how far ahead of the start it lives; 0 = no worm
+static int wormSet;          // --worm was given: in the wave game the worm is then there from the start as well
+static int waves = 1;        // the wave game (default); 0 = the fixed sandbox layout
+static int hurtLevel;        // test option: your mech starts damaged (1 to 3)
+static int firstWave = 1;    // the wave the game starts with
 int game_cards = 1; // draw distant mechs as flat cards
 int game_outside;
 xf game_cam;
@@ -58,7 +62,25 @@ static struct {
     float aimDist, alarm;
     float wornTime;      // seconds the headset has been worn; the seat is fitted to you shortly after
     int fitted;
+    float lookYaw;       // which way you are looking, in the world
+    float hatch;         // seconds A (E in a window) has been held to climb out
+    int hatchBlock, pendingExit; // hatchBlock: A must be let go first (after grafting or boarding)
+    int torchMech, torchPart; // what the repair torch is working on, or -1
+    float weldT;         // until the next crackle of the torch
 } pl;
+
+// ---- waves -------------------------------------------------------------------------------------------
+// The game: enemies come in waves that grow, with a break between waves to repair, take arms or change mechs.
+#define FIRST_BREAK 15.0f
+#define WAVE_BREAK 25.0f
+#define HATCH_TIME 0.8f   // hold A this long to climb out
+#define TORCH_RANGE 14.0f
+#define TORCH_RATE 14.0f  // hit points a second the repair torch puts back
+static struct {
+    int n, fighting, left, kills, best, worm; // n: the wave under way, or the last one; worm: the worm came with it
+    float timer, quiet, alone; // timer: break left. quiet: seconds since the last kill. alone: on foot with no mech to climb into
+} wv;
+static int imin(int a, int b) { return a < b ? a : b; }
 
 static const v3 TINT[4][2] = {
     {{0.44f, 0.52f, 0.30f}, {0.84f, 0.80f, 0.66f}}, // player: olive and cream
@@ -134,7 +156,10 @@ void game_loadout(int body, int armL, int armR) {
     myArm[0] = (unsigned)armL % ARM_COUNT;
     myArm[1] = (unsigned)armR % ARM_COUNT;
 }
-void game_worm(float dist) { wormDist = dist; }
+void game_worm(float dist) { wormDist = dist; wormSet = 1; }
+void game_waves(int on) { waves = on; }
+void game_hurt(int level) { hurtLevel = level < 0 ? 0 : level > 3 ? 3 : level; }
+void game_first_wave(int n) { firstWave = n < 1 ? 1 : n > 99 ? 99 : n; }
 void game_swarm(int n) { swarm = n < 0 ? 0 : n > 64 ? 64 : n; }
 void game_horde(int n) { horde = n < 0 ? 0 : n > NMECH - 5 ? NMECH - 5 : n; }
 void game_set_cam(v3 pos, float yaw) { pl.pos = pos; pl.yaw = yaw; pl.fly = 1; pl.mode = MODE_FOOT; mech[pl.mech].piloted = 0; update_rig(); }
@@ -202,6 +227,18 @@ static void apply_hit(Mech *m, int part, v3 local, v3 wpos, v3 dir, float dmg) {
     }
 }
 
+// Something heavy dropped from the sky hits the ground: a ring of dust, a boom, and a jolt if you are close.
+static void touchdown(v3 p, float size, float gain) {
+    for (int i = 0; i < 30; i++)
+        spawn(PT_DUST, vadd(p, V3(frands() * size, 0.4f, frands() * size)), V3(frands() * 2 * size, 1 + frand() * 4, frands() * 2 * size),
+              1.6f + frand(), 0.5f * size, 0.5f * size, -2, 1);
+    audio_play(SND_BOOM, p, gain);
+    audio_play(SND_STEP, p, 1.5f * gain);
+    float near = clampf(1 - vlen(vsub(p, rigNow.p)) / 90, 0, 1);
+    hapL = maxf(hapL, near);
+    hapR = maxf(hapR, near);
+}
+
 // ---- small enemies: drones, crawlers and turrets ----------------------------------------------------
 // Each is one traced body (the turret: a base and a turning head) with hit points, not a jointed mech.
 enum { B_DRONE, B_CRAWLER, B_TURRET };
@@ -209,6 +246,8 @@ enum { B_DRONE, B_CRAWLER, B_TURRET };
 #define BOT_OWNER 1000 // a shot's owner is a mech index, -1 for your pistol, or BOT_OWNER + bot index
 typedef struct {
     int kind, alive, wreck, aggro, burst, ndent;
+    int wave;            // came with the current wave
+    float drop;          // a turret being dropped in: metres still to fall (vel.y is how fast)
     v3 pos, vel, home;   // pos: a drone's centre; the ground point under a crawler or turret
     float yaw, aim, pitch, roll, walk;
     float hp, flash, cool, phase, seed;
@@ -328,6 +367,17 @@ static void worm_die(void) {
     w->alive = 0;
     worm_place();
 }
+static void worm_spawn(v3 at, v3 home, float yaw, float hp) { // under the sand at `at`, its body trailing behind
+    memset(&worm, 0, sizeof worm);
+    worm.alive = 1;
+    worm.hp = hp;
+    worm.home = home;
+    worm.yaw = yaw;
+    worm.p = V3(at.x, world_height(at.x, at.z) - 9, at.z);
+    worm.timer = 4;
+    for (int i = 0; i < WPATH; i++) worm.path[i] = vadd(worm.p, vmul(yawFwd(yaw), -WSTEP * (float)((WPATH - i) % WPATH)));
+    worm_place();
+}
 static void worm_hit(int k, v3 local, v3 wpos, v3 dir, float dmg) {
     Worm *w = &worm;
     v3 back = vmul(dir, -1);
@@ -372,6 +422,20 @@ void game_init(int demo, int startOnFoot) {
     mech_outfit(&mech[2], CH_MACHINE, ARM_NEEDLER, ARM_PLASMA); // each mech can be built differently
     mech_outfit(&mech[3], CH_BIO, ARM_SPORE, ARM_NEEDLER);
     mech_outfit(&mech[4], CH_BIO, ARM_NEEDLER, ARM_SPORE);       // the spare is a living one
+    if (waves) { // the wave game starts with only your mech and the spare; everything else arrives in waves
+        mech[2].alive = mech[3].alive = 0;
+        if (!demo) mech[1].alive = 0; // the practice target stays only for --demo pictures
+    }
+    for (int p = 0; p < P_COUNT && hurtLevel; p++) { // test option: your mech starts battered, to try repairing it
+        Mech *m = &mech[0];
+        float keep = hurtLevel == 1 ? 0.6f : hurtLevel == 2 ? 0.45f : 0.25f;
+        for (int k = 0; k < 60 && m->hp[p] > keep * PART_HP(p); k++) {
+            v3 c = xfpt(m->world[p], shapes[mech_shape(m, p)].boxC), ro = vadd(c, vmul(vnorm(V3(frands(), frands() * 0.6f, frands())), 9)), l;
+            float t;
+            int part;
+            if (mech_ray(m, ro, vnorm(vsub(c, ro)), 30, &t, &part, &l) && part == p) mech_damage(m, p, l, 9);
+        }
+    }
     nmech = 5 + horde;
     for (int i = 5; i < nmech; i++) { // test crowd: enemy patrols scattered ahead, 130 to 600 m out
         float a = frands() * 1.3f, r = 130 + frand() * 470;
@@ -388,7 +452,7 @@ void game_init(int demo, int startOnFoot) {
         {B_DRONE, 3, -60, -190}, {B_DRONE, 3, 110, -170}};
     memset(bot, 0, sizeof bot);
     nbot = 0;
-    for (unsigned g = 0; g < sizeof GROUP / sizeof GROUP[0] + 2 * swarm; g++) {
+    for (unsigned g = waves ? sizeof GROUP / sizeof GROUP[0] : 0; g < sizeof GROUP / sizeof GROUP[0] + 2 * swarm; g++) {
         int extra = g >= sizeof GROUP / sizeof GROUP[0]; // --swarm: single drones and crawlers scattered ahead
         float ea = extra ? frands() * 1.3f : 0, er = extra ? 80 + frand() * 320 : 0;
         int kind = extra ? (int)(g & 1) : GROUP[g].kind, n = extra ? 1 : GROUP[g].n;
@@ -408,20 +472,19 @@ void game_init(int demo, int startOnFoot) {
         }
     }
     memset(&worm, 0, sizeof worm);
-    if (wormDist > 0) { // it starts under the sand on its home ground, far ahead
-        worm.alive = 1;
-        worm.hp = 900;
-        worm.home = V3(0, 0, -wormDist);
-        worm.p = V3(110, world_height(110, -wormDist) - 9, -wormDist);
-        worm.timer = 4;
-        for (int i = 0; i < WPATH; i++) worm.path[i] = vadd(worm.p, V3(0, 0, WSTEP * (float)((WPATH - i) % WPATH)));
-    }
+    if (wormDist > 0 && (!waves || wormSet)) worm_spawn(V3(110, 0, -wormDist), V3(0, 0, -wormDist), 0, 900); // under the sand on its home ground, far ahead
     worm_place();
     pl.hp = 100;
     pl.fade = 1;
     pl.fadeDir = -1;
     pl.pendingBoard = -1;
     pl.graft = -1;
+    pl.torchMech = -1;
+    int best = wv.best;
+    memset(&wv, 0, sizeof wv);
+    wv.best = best;
+    wv.n = firstWave - 1;
+    wv.timer = FIRST_BREAK;
     pl.calib = XF(V3(0, 1.7f, 0), qid());
     if (once) { pl.calib = keepCalib; pl.footLift = keepLift; pl.wornTime = keepWorn; pl.fitted = keepFit; } // a restart keeps your seat fit
     once = 1;
@@ -602,6 +665,7 @@ static void graft_update(const Input *in, Mech *m) {
     audio_play(SND_WHOOSH, at, 0.8f);
     hapL = hapR = 0.8f;
     pl.graft = -1;
+    pl.hatchBlock = 1; // the same press must not go on to climb out
 }
 
 static void start_eject(void) {
@@ -630,9 +694,9 @@ static void enemy_ai(int idx, float dt, v3 tgt, int tgtOnFoot) {
     v3 to = vsub(tgt, m->pos);
     float dist = sqrtf(to.x * to.x + to.z * to.z);
     int limp = m->stage[P_THIGH_L] >= 2 || m->stage[P_SHIN_L] >= 2 || m->stage[P_THIGH_R] >= 2 || m->stage[P_SHIN_R] >= 2;
-    if (dist < 120) m->aggro = 1;
+    if (dist < 120 || m->wave) m->aggro = 1; // a mech that came with a wave comes for you wherever you are
     if (game_calm) m->aggro = 0;
-    if (!m->aggro || dist > 320) { // patrol in a wide circle
+    if (!m->aggro || (dist > 320 && !m->wave)) { // patrol in a wide circle
         m->throttle = limp ? 1.5f : 3.2f;
         m->yaw += m->aiTurn * dt * clampf(m->speed / 3, 0, 1);
         m->torsoYaw = approach(m->torsoYaw, 0, dt);
@@ -667,14 +731,25 @@ static void bots_update(float dt, v3 tgt, int onFoot) {
         }
         b->flash = maxf(0, b->flash - dt * 7);
         for (int j = 0; j < b->ndent; j++) b->heat[j] = maxf(0, b->heat[j] - dt * 0.45f);
+        if (b->drop > 0) { // a turret on its way down: braking jets for the last stretch, then a hard landing
+            if (b->drop < 26) b->vel.y = approach(b->vel.y, -6, 34 * dt);
+            b->drop = maxf(0, b->drop + b->vel.y * dt);
+            b->pos.y = world_height(b->pos.x, b->pos.z) + b->drop;
+            if (b->drop < 26 && frand() < dt * 40) fire(vadd(b->pos, V3(frands() * 1.4f, -0.4f, frands() * 1.4f)), 0.8f);
+            if (b->drop <= 0) {
+                b->vel = V3(0, 0, 0);
+                touchdown(b->pos, 4, 1.0f);
+            }
+            continue;
+        }
         b->cool -= dt;
         b->phase += dt;
         v3 to = vsub(tgt, b->pos);
         float dist = sqrtf(to.x * to.x + to.z * to.z), bearing = atan2f(-to.x, -to.z);
         float side = (i & 1) ? 1.0f : -1.0f;
-        if (dist < BOT[b->kind].aggro) b->aggro = 1;
+        if (dist < BOT[b->kind].aggro || b->wave) b->aggro = 1;
         if (game_calm == 1 || pl.dead || pl.fly) b->aggro = 0;
-        int hunt = b->aggro && dist < 320;
+        int hunt = b->aggro && (dist < 320 || b->wave);
         int facing = fabsf(wrap(bearing - (b->kind == B_TURRET ? b->aim : b->yaw))) < (b->kind == B_TURRET ? 0.05f : 0.25f);
         if (b->hp < BOT[b->kind].hp * 0.4f && frand() < dt * 4) smoke(bot_xf(b).p, 0.35f);
 
@@ -766,8 +841,9 @@ static void worm_update(float dt, v3 tgt, int onFoot) {
     v3 to = vsub(tgt, w->p);
     float dist = sqrtf(to.x * to.x + to.z * to.z);
     float near = clampf(1 - vlen(vsub(w->p, rigNow.p)) / 140, 0, 1); // how strongly you feel it
-    if (dist < 220) w->aggro = 1;
-    if (game_calm == 1 || pl.dead || pl.fly || dist > 500) w->aggro = 0;
+    int hunts = waves && wv.worm; // one that came with a wave hunts you wherever you are
+    if (dist < 220 || hunts) w->aggro = 1;
+    if (game_calm == 1 || pl.dead || pl.fly || (dist > 500 && !hunts)) w->aggro = 0;
     v3 f = yawFwd(w->yaw);
     if (!w->breach) {
         // Under the sand: head for its prey, or circle its home ground when it has none.
@@ -848,11 +924,185 @@ static void worm_update(float dt, v3 tgt, int onFoot) {
     }
 }
 
+// ---- waves ---------------------------------------------------------------------------------------------
+static v3 player_ground(void) { // the point on the ground under you, or under the mech you are in
+    if (pl.mode == MODE_PILOT) return mech[pl.mech].pos;
+    return V3(rigNow.p.x, world_height(rigNow.p.x, rigNow.p.z), rigNow.p.z);
+}
+static v3 out_from(v3 from, float yaw, float dist) { // a point on the ground this far away in this direction
+    v3 p = vadd(from, vmul(yawFwd(yaw), dist));
+    p.y = world_height(p.x, p.z);
+    return p;
+}
+static float yaw_to(v3 from, v3 to) { return atan2f(-(to.x - from.x), -(to.z - from.z)); }
+// A mech dropped from the sky at `at`. It takes the slot of one that has been destroyed, or a new one.
+static Mech *drop_mech(v3 at, float yaw, int team, int chassis, int armL, int armR) {
+    int i = 1;
+    while (i < nmech && (mech[i].alive || i == pl.mech)) i++;
+    if (i == nmech) { if (nmech == NMECH) return NULL; nmech++; }
+    Mech *m = &mech[i];
+    mech_init(m, at, yaw, team);
+    mech_outfit(m, chassis, armL, armR);
+    m->drop = 120;
+    m->dropV = -40;
+    m->cool[0] = m->cool[1] = 2;
+    mech_pose(m, 0);
+    audio_play(SND_WHOOSH, vadd(at, V3(0, 60, 0)), 1.5f);
+    return m;
+}
+static Bot *add_bot(int kind, v3 at, float yaw) {
+    int i = 0;
+    while (i < nbot && (bot[i].alive || bot[i].wreck)) i++;
+    if (i == nbot) {
+        if (nbot < NBOT) nbot++;
+        else for (i = 0; i < nbot && bot[i].alive; i++) {} // a burnt-out turret makes way
+        if (i == NBOT) return NULL;
+    }
+    Bot *b = &bot[i];
+    memset(b, 0, sizeof *b);
+    b->kind = kind;
+    b->alive = 1;
+    b->hp = BOT[kind].hp;
+    b->seed = (i + 1) * 7.3f;
+    b->phase = (i + 1) * 1.7f;
+    b->yaw = b->aim = yaw;
+    b->home = V3(at.x, world_height(at.x, at.z), at.z);
+    b->pos = vadd(b->home, V3(0, kind == B_DRONE ? 20.0f : 0, 0));
+    return b;
+}
+static void send_spare(void) { // a fresh mech of your own side, dropped a short walk away
+    v3 at = out_from(player_ground(), pl.lookYaw + 0.7f, 24);
+    collide_rocks(&at, 3);
+    drop_mech(at, pl.lookYaw, 2, frand() < 0.5f, (int)(frand() * 3.99f), (int)(frand() * 3.99f));
+}
+static void wave_start(v3 ear) {
+    int n = ++wv.n, wormWave = n % 5 == 0;
+    int crawlers = imin(3 + n, 14), drones = n < 2 ? 0 : imin(n, 10), mechs = n < 3 ? 0 : imin((n - 1) / 2, 5), turrets = n < 4 ? 0 : imin((n - 1) / 3, 4);
+    if (wormWave) { crawlers /= 2; drones /= 2; mechs /= 2; turrets = 0; }
+    v3 me = player_ground();
+    int spawned = 0;
+    float front = pl.lookYaw + frands() * 0.8f;                                         // most come from where you are looking
+    float flank = front + (frand() < 0.5f ? 1.0f : -1.0f) * (1.7f + 0.6f * frand());   // from wave 6, some from the side
+    for (int k = 0; k < crawlers; k += 4) { // packs of up to four
+        float a = (n >= 6 && ((k / 4) & 1) ? flank : front) + frands() * 0.2f;
+        v3 c = out_from(me, a, 150 + 50 * frand());
+        for (int j = k; j < k + 4 && j < crawlers; j++) {
+            Bot *b = add_bot(B_CRAWLER, vadd(c, V3(frands() * 6, 0, frands() * 6)), a + PI);
+            if (b) { b->wave = b->aggro = 1; spawned++; }
+        }
+    }
+    for (int k = 0; k < drones; k += 3) { // flights of up to three
+        float a = (n >= 6 && ((k / 3) & 1) ? flank : front) + frands() * 0.3f;
+        v3 c = out_from(me, a, 200 + 40 * frand());
+        for (int j = k; j < k + 3 && j < drones; j++) {
+            Bot *b = add_bot(B_DRONE, vadd(c, V3(frands() * 10, 0, frands() * 10)), a + PI);
+            if (b) { b->wave = b->aggro = 1; spawned++; }
+        }
+    }
+    for (int k = 0; k < mechs; k++) { // dropped from the sky, close enough to see them come down
+        v3 at = out_from(me, (n >= 6 && (k & 1) ? flank : front) + frands() * 0.45f, 130 + 40 * frand());
+        collide_rocks(&at, 3);
+        Mech *m = drop_mech(at, yaw_to(at, me), 1, frand() < 0.5f, (int)(frand() * 3.99f), (int)(frand() * 3.99f));
+        if (m) { m->wave = m->aggro = 1; m->aiTurn = frands() * 0.15f; spawned++; }
+    }
+    for (int k = 0; k < turrets; k++) { // dropped where they can reach you
+        v3 at = out_from(me, front + frands() * 0.9f, 95 + 45 * frand());
+        collide_rocks(&at, 3);
+        Bot *b = add_bot(B_TURRET, at, yaw_to(at, me));
+        if (b) { b->wave = b->aggro = 1; b->drop = 110; b->vel.y = -38; b->pos.y += b->drop; spawned++; }
+    }
+    wv.worm = wormWave;
+    if (wormWave) { // it rises from the sand far ahead, angrier each time
+        v3 at = out_from(me, front + frands() * 0.6f, 230);
+        worm_spawn(at, at, yaw_to(at, me), 900 + 300 * (n / 5 - 1));
+        worm.aggro = 1;
+    }
+    wv.fighting = 1;
+    wv.quiet = 0;
+    wv.left = spawned + wormWave;
+    audio_play(SND_HORN, ear, 1.0f);
+    printf("waves: %.0f s: wave %d: %d crawlers, %d drones, %d mechs, %d turrets%s\n", gtime, n, crawlers, drones, mechs, turrets, wormWave ? " and the worm" : "");
+}
+static void waves_update(float dt, v3 ear) {
+    if (!waves || pl.fly || pl.dead) return;
+    int haveMech = 0; // on foot with no mech left to climb into: another is sent before long
+    for (int i = 0; i < nmech; i++) haveMech |= mech[i].alive && mech[i].team != 1 && mech[i].cook <= 0;
+    wv.alone = pl.mode == MODE_FOOT && !haveMech ? wv.alone + dt : 0;
+    if (wv.alone > 25) { send_spare(); wv.alone = 0; printf("waves: %.0f s: you have no mech; a spare is on its way\n", gtime); }
+    if (!wv.fighting) {
+        float before = wv.timer;
+        wv.timer -= dt;
+        if (wv.timer > 0 && wv.timer < 3 && ceilf(wv.timer) != ceilf(before)) audio_play(SND_BEEP, ear, 0.8f); // three, two, one
+        if (wv.timer <= 0) wave_start(ear);
+        return;
+    }
+    int left = wv.worm && worm.alive;
+    for (int i = 0; i < nmech; i++) left += mech[i].alive && mech[i].wave;
+    for (int i = 0; i < nbot; i++) left += bot[i].alive && bot[i].wave;
+    if (left < wv.left) { wv.kills += wv.left - left; wv.quiet = 0; }
+    else wv.quiet += dt;
+    wv.left = left;
+    if (left) return;
+    wv.fighting = 0; // beaten: a break, and a mech to change into if you have none to spare
+    wv.timer = WAVE_BREAK;
+    if (wv.n > wv.best) wv.best = wv.n;
+    audio_play(SND_CHIME, ear, 1.2f);
+    int spare = 0;
+    for (int i = 0; i < nmech; i++) spare |= mech[i].alive && mech[i].team != 1 && mech[i].cook <= 0 && !(pl.mode == MODE_PILOT && i == pl.mech);
+    if (!spare) send_spare();
+    printf("waves: %.0f s: wave %d beaten, %d kills so far%s\n", gtime, wv.n, wv.kills, spare ? "" : "; a spare mech is on its way");
+}
+// A mech on its way down: braking jets for the last stretch, then a hard landing.
+static void mech_fall(Mech *m, float dt) {
+    for (int p = 0; p < P_COUNT; p++) m->flash[p] = maxf(0, m->flash[p] - dt * 7);
+    if (m->drop < 36) m->dropV = approach(m->dropV, -7, 26 * dt);
+    m->drop = maxf(0, m->drop + m->dropV * dt);
+    if (m->drop < 36)
+        for (int k = P_FOOT_L; k <= P_FOOT_R; k += P_FOOT_R - P_FOOT_L)
+            if (frand() < dt * 40) fire(vadd(m->world[k].p, V3(frands() * 0.5f, -0.6f, frands() * 0.5f)), 1.0f);
+    if (m->drop <= 0) { m->dropV = 0; touchdown(m->pos, 7, 1.4f); }
+    mech_pose(m, 0);
+}
+
 // ---- update ----------------------------------------------------------------------------------------
+// Puts you on foot with your head over `spot`, looking along `face`.
+static void place_on_foot(const Input *in, v3 spot, float face) {
+    pl.yaw = face - qyaw(in->head.q);
+    v3 h = qrot(qaxis(UP, pl.yaw), V3(in->head.p.x, 0, in->head.p.z));
+    pl.pos = V3(spot.x - h.x, world_height(spot.x, spot.z), spot.z - h.z);
+    pl.mode = MODE_FOOT;
+    update_rig();
+}
+// Climbing out leaves the mech standing, unlike the eject, so it can be repaired; you land beside it, facing it.
+static void climb_out(const Input *in) {
+    Mech *m = &mech[pl.mech];
+    m->piloted = 0;
+    m->throttle = 0;
+    pl.throttle = pl.stickX = pl.stickY = pl.ejectPull = 0;
+    pl.grab[0] = pl.grab[1] = GRAB_NONE;
+    v3 spot = vadd(m->pos, vadd(qrot(qaxis(UP, m->yaw), V3(-6.5f, 0, 0)), vmul(yawFwd(m->yaw), 1.5f)));
+    collide_rocks(&spot, 0.5f);
+    place_on_foot(in, spot, yaw_to(spot, m->pos));
+    audio_play(SND_STEP, spot, 0.8f);
+    hapL = hapR = 0.5f;
+}
+
 static void update_pilot(const Input *in, float dt) {
     Mech *m = &mech[pl.mech];
     xf anchor = cockpit_anchor(m), inv = xfinv(anchor);
     if (in->recenterKey) calibrate(in);
+    // climbing out: hold A (E in a window) when there is no arm in reach to take
+    if (!in->hand[1].a) pl.hatchBlock = 0;
+    if (in->hand[1].a && !pl.hatchBlock && pl.graft < 0 && pl.fadeDir < 0) {
+        pl.hatch += dt;
+        hapR = maxf(hapR, 0.1f + 0.4f * pl.hatch / HATCH_TIME);
+        if (pl.hatch >= HATCH_TIME) {
+            pl.hatch = 0;
+            pl.hatchBlock = pl.pendingExit = 1;
+            pl.fadeDir = 1;
+            audio_play(SND_CLICK, anchor.p, 1.0f);
+        }
+    } else pl.hatch = 0;
     float turnIn = in->vr ? in->hand[1].sx : in->hand[0].sx;
     float thrIn = in->hand[0].sy;
     for (int h = 0; h < 2 && in->vr; h++) { // grabbing the physical controls
@@ -948,6 +1198,47 @@ static void update_foot(const Input *in, float dt) {
         hapR = 0.5f;
         audio_play(SND_PISTOL, aim.p, 0.5f);
     }
+    // The repair torch: hold the left trigger (Space in a window) and point it at a mech of your own side. It
+    // closes holes and brings parts back a stage at a time, but only on foot, out in the open.
+    pl.torchMech = -1;
+    pl.weldT -= dt;
+    if (in->hand[0].trigger > 0.5f && (in->hand[0].tracked || !in->vr) && !pl.fly) {
+        xf src = in->vr ? hand_xf(rigNow, &in->hand[0]) : xfmul(rigNow, in->hand[1].aim);
+        v3 d = qrot(src.q, V3(0, 0, -1)), o = vadd(src.p, vmul(d, in->vr ? 0.08f : 0.3f)), local = {0, 0, 0};
+        float reach = TORCH_RANGE;
+        int tm = -1, tp = -1;
+        for (int i = 0; i < nmech; i++) {
+            float t;
+            int part;
+            v3 l;
+            if (mech[i].alive && mech[i].team != 1 && mech[i].drop <= 0 && mech_ray(&mech[i], o, d, reach, &t, &part, &l)) {
+                reach = t; tm = i; tp = part; local = l;
+            }
+        }
+        v3 end = vadd(o, vmul(d, reach)), back = vmul(d, -1);
+        for (int k = 0; k < 2; k++) spawn(PT_SPARK, o, vmul(vadd(d, rv(0.015f)), reach / 0.1f), 0.1f, 0.016f, 0, 0, 0); // the flame
+        hapL = maxf(hapL, 0.15f);
+        if (tm >= 0) {
+            Mech *m = &mech[tm];
+            float hp0 = m->hp[tp];
+            int holes = m->ndent[tp], st = m->cook > 0 ? -1 : mech_repair(m, tp, local, TORCH_RATE * dt);
+            int whole = m->hp[tp] >= PART_HP(tp) && !m->ndent[tp] && (hp0 < PART_HP(tp) || holes);
+            pl.torchMech = tm;
+            pl.torchPart = tp;
+            spawn(PT_FLASH, vadd(end, vmul(back, 0.1f)), V3(0, 0, 0), 0.05f, 0.2f + 0.3f * frand(), 0, 0, 0);
+            if (m->cook <= 0 && (m->hp[tp] > hp0 || holes)) { // working: sparks off metal, a spray off flesh, and the crackle
+                if (shapes[mech_shape(m, tp)].bio) ichor(end, back, 1);
+                else sparks(end, back, 2, 4, 0.04f);
+                hapL = maxf(hapL, 0.35f);
+                if (pl.weldT <= 0) { pl.weldT = 0.07f; audio_play(SND_WELD, end, 0.4f); }
+            }
+            if (st >= 0 || whole) { // a stage back, or the part whole again
+                sparks(end, back, 14, 6, 0.05f);
+                audio_play(SND_CHIME, end, whole ? 0.9f : 0.5f);
+                hapL = 0.8f;
+            }
+        }
+    }
     // climb into a friendly mech when close to it
     int near = -1;
     for (int i = 0; i < nmech; i++) {
@@ -968,8 +1259,9 @@ void game_update(const Input *in) {
         pl.wornTime += dt;
     }
     update_rig();
+    pl.lookYaw = qyaw(qmul(rigNow.q, in->head.q));
 
-    // fades: start of game, boarding, death
+    // fades: start of game, boarding, climbing out, death
     pl.fade = clampf(pl.fade + pl.fadeDir * dt * 3.5f, 0, 1);
     pl.hurt = maxf(0, pl.hurt - dt * 1.6f);
     if (pl.fade >= 1 && pl.fadeDir > 0) {
@@ -983,8 +1275,10 @@ void game_update(const Input *in) {
             pl.bob = mech[pl.mech].hipH;
             mech[pl.mech].piloted = 1;
             mech[pl.mech].torsoYaw = 0;
+            pl.hatchBlock = 1; // the press that boarded must not go on to climb out
             calibrate(in);
         }
+        if (pl.pendingExit) { pl.pendingExit = 0; if (pl.mode == MODE_PILOT) climb_out(in); }
         pl.fadeDir = -1;
     }
 
@@ -1009,6 +1303,7 @@ void game_update(const Input *in) {
     for (int i = 0; i < nmech; i++) {
         Mech *m = &mech[i];
         if (!m->alive) continue;
+        if (m->drop > 0) { mech_fall(m, dt); continue; }
         if (m->team == 1 && !m->dummy && !pl.dead && !pl.fly) enemy_ai(i, dt, tgt, pl.mode != MODE_PILOT);
         if (m->cook > 0) { m->cook -= dt; if (m->cook <= 0) { die(m); continue; } }
         m->speed = approach(m->speed, m->throttle, 3 * dt);
@@ -1055,6 +1350,7 @@ void game_update(const Input *in) {
 
     bots_update(dt, tgt, pl.mode != MODE_PILOT);
     worm_update(dt, tgt, pl.mode != MODE_PILOT);
+    waves_update(dt, xfpt(rigNow, in->head.p));
 
     // shots
     for (int i = 0; i < MAXBOLT; i++) {
@@ -1246,8 +1542,10 @@ void game_scene(Scene *s, const Input *in) {
         audio_listener(s->head, right, hum, sp, pl.mode == MODE_PILOT && !game_outside ? pl.alarm : 0);
     }
     s->vignette = in->vr && pl.mode == MODE_EJECT ? 0.7f : 0; // edge darkening only during the eject flight
-    s->fade = game_outside ? pl.fade : maxf(pl.fade, pl.hurt * 0.4f); // the red flash when you are hit is only for your own eyes
-    s->fadeCol = pl.fade > pl.hurt * 0.4f ? V3(0.02f, 0.02f, 0.03f) : V3(0.9f, 0.1f, 0.05f);
+    float dark = maxf(pl.fade, pl.hatch / HATCH_TIME * 0.45f), red = pl.hurt * 0.4f; // holding A to climb out dims the view
+    s->fade = game_outside ? pl.fade : maxf(dark, red); // the red flash when you are hit is only for your own eyes
+    s->fadeCol = dark >= red ? V3(0.02f, 0.02f, 0.03f) : V3(0.9f, 0.1f, 0.05f);
+    float waveNo = waves ? (float)(wv.fighting ? wv.n : wv.n + 1) : 0, waveCount = wv.fighting ? (float)wv.left : -ceilf(wv.timer);
     int piloting = pl.mode == MODE_PILOT, cabin = piloting && !game_outside; // cabin: drawn from inside the cockpit
 
     s->nimp = 0;
@@ -1314,6 +1612,8 @@ void game_scene(Scene *s, const Input *in) {
         dash->aux[0] = m->speed / TOP_SPEED;
         dash->aux[2] = pl.alarm;
         dash->aux[3] = clampf(m->hp[P_TORSO] / 160.0f, 0, 1);
+        dash->stat[10] = waveNo;    // the wave game: which wave, and how many are left in it
+        dash->stat[11] = waveCount; // (or, between waves, minus the seconds to the next)
         for (int k = CKP_SEAT; k <= CKP_SIDE_R; k++) push_cabin(s, mech_cockpit(m, k), cabin_at(a, mech_cockpit(m, k)), m->team)->seed = (float)k;
         for (int k = CKP_TRIM; k <= CKP_TRIM3; k++)
             if (mech_cockpit(m, k) >= 0) push_cabin(s, mech_cockpit(m, k), cabin_at(a, mech_cockpit(m, k)), m->team);
@@ -1337,6 +1637,18 @@ void game_scene(Scene *s, const Input *in) {
             s->ptc[s->nptc++] = (DrawParticle){rp.x, rp.y, rp.z, maxf(0.05f, pl.aimDist * 0.014f), 0, PT_RETICLE, 0, 0};
         }
     } else if (!game_outside) {
+        if (pl.mode == MODE_FOOT && !pl.fly && (in->hand[0].tracked || !in->vr)) { // the screen on your left wrist; in a window, low on the left
+            xf w = in->vr ? xfmul(hand_xf(rig, &in->hand[0]), XF(V3(0, 0.05f, 0.11f), qmul(qaxis(UP, PI / 2), qaxis(V3(1, 0, 0), -PI / 2))))
+                          : xfmul(xfmul(rig, in->head), XF(V3(-0.15f, -0.09f, -0.3f), qmul(qaxis(UP, 0.3f), qaxis(V3(1, 0, 0), -0.25f))));
+            DrawPart *d = push(s, S_WRIST, w, 0);
+            d->texel = 0.006f;
+            memcpy(d->scr, shapes[S_WRIST].scr, sizeof d->scr);
+            d->aux[0] = pl.torchMech >= 0 ? mech[pl.torchMech].hp[pl.torchPart] / PART_HP(pl.torchPart) : -1; // the part under the torch
+            d->aux[1] = 1; // the wrist's layout
+            d->aux[3] = clampf(pl.hp / 100, 0, 1);
+            d->stat[10] = waveNo;
+            d->stat[11] = waveCount;
+        }
         if (in->hand[1].tracked && pl.mode == MODE_FOOT) push(s, S_PISTOL, pistol_xf(rig, &in->hand[1]), 0)->texel = 0.006f;
         for (int h = 0; h < 2; h++) { // the pistol hand is always closed
             int fist = (h && pl.mode == MODE_FOOT) || in->hand[h].squeeze > 0.5f;
@@ -1346,6 +1658,19 @@ void game_scene(Scene *s, const Input *in) {
 
     bots_scene(s);
     worm_scene(s);
+    if (waves && wv.fighting && wv.left <= 3 && wv.quiet > 15) { // the last few have kept away: amber light over them
+        v3 at[8];
+        int n = 0;
+        for (int i = 0; i < nmech && n < 8; i++)
+            if (mech[i].alive && mech[i].wave) at[n++] = vadd(mech[i].pos, V3(0, 14, 0));
+        for (int i = 0; i < nbot && n < 8; i++)
+            if (bot[i].alive && bot[i].wave) at[n++] = vadd(bot_xf(&bot[i]).p, V3(0, 3, 0));
+        if (wv.worm && worm.alive && n < 8) game_focus(FOCUS_WORM, 0, &at[n++]);
+        for (int i = 0; i < n; i++) { // larger with distance, so it shows from far away
+            float sc = maxf(1, vlen(vsub(at[i], s->head)) / 40);
+            push(s, S_BEACON_FOE, XF(vadd(at[i], V3(0, 5.2f * sc, 0)), qid()), 0)->scale = sc;
+        }
+    }
     for (int i = 0; i < MAXDEB; i++) {
         Debris *b = &deb[i];
         if (!b->active) continue;
@@ -1386,6 +1711,13 @@ void game_report(void) { // one line for test runs: how the fight is going
     printf("report: arms %s / %s; ", me->gone[P_ARM_L] ? "none" : ARM[me->arm[0]], me->gone[P_ARM_R] ? "none" : ARM[me->arm[1]]);
     printf("report: %s, your mech torso %.0f of 160, you %.0f of 100, restarts %d; left: %d enemy mechs, %d drones, %d crawlers, %d turrets, worm %.0f of 900 (head at %.0f %.0f %.0f, heading %.2f)\n",
            pl.mode == MODE_PILOT ? "piloting" : "on foot", mech[0].alive ? mech[0].hp[P_TORSO] : 0, pl.hp, deaths, mechs, kind[0], kind[1], kind[2], worm.alive ? worm.hp : 0, worm.p.x, worm.p.y, worm.p.z, worm.yaw);
+    int holes = 0;
+    float hp = 0;
+    for (int p = 0; p < P_COUNT; p++) { holes += me->ndent[p]; hp += me->gone[p] ? 0 : maxf(me->hp[p], 0); }
+    printf("report: mech %d%s: stages", pl.mech, me->alive ? "" : " (destroyed)");
+    for (int p = 0; p < P_COUNT; p++) printf(" %c", me->gone[p] ? '-' : '0' + me->stage[p]);
+    printf(" (pelvis torso arms legs), %.0f of 1060 hit points, %d holes\n", hp, holes);
+    if (waves) printf("report: wave %d, %s, %d kills, best wave %d\n", wv.n, wv.fighting ? "fighting" : "between waves", wv.kills, wv.best);
 }
 
 int game_focus(int what, float range, v3 *out) {
@@ -1411,5 +1743,6 @@ int game_focus(int what, float range, v3 *out) {
         float d = vlen(vsub(c, me));
         if (d < best) { best = d; *out = c; found = 1; }
     }
+    if (worm.alive && wormVis[0] && vlen(vsub(wormX[0].p, me)) < best) { *out = wormX[0].p; found = 1; } // the worm's head, while it is out of the sand
     return found;
 }

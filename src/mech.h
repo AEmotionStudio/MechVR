@@ -4,6 +4,7 @@
 #include "render.h"
 
 enum { P_PELVIS, P_TORSO, P_ARM_L, P_ARM_R, P_THIGH_L, P_SHIN_L, P_FOOT_L, P_THIGH_R, P_SHIN_R, P_FOOT_R, P_COUNT };
+#define PART_HP(part) ((part) == P_TORSO ? 160.0f : 100.0f) // hit points of an undamaged part
 // Every shape the game draws. The pieces of each one are listed under the same name in assets/shapes.txt.
 // Edit that file (or the Blender scene that writes it) to change shapes, joints and points; no code change is needed.
 #define SHAPE_LIST(X) \
@@ -12,7 +13,8 @@ enum { P_PELVIS, P_TORSO, P_ARM_L, P_ARM_R, P_THIGH_L, P_SHIN_L, P_FOOT_L, P_THI
     X(DRONE) X(CRAWLER) X(CRAWLER_LEG) X(TURRET_BASE) X(TURRET_HEAD) X(SPIT) \
     X(WORM_HEAD) X(WORM_SEG) X(WORM_TAIL) \
     X(BIO_PELVIS) X(BIO_TORSO) X(BIO_THIGH) X(BIO_SHIN) X(BIO_FOOT) X(ARM_NEEDLER) X(ARM_SPORE) X(NEEDLE) X(GLOB) \
-    X(CKB_SHELL) X(CKB_DASH) X(CKB_SEAT) X(CKB_SIDE_L) X(CKB_SIDE_R) X(CKB_THROTTLE) X(CKB_STICK) X(CKB_EJECT) X(CKB_TEETH) X(CKB_RIBS) X(CK_STRUTS) X(CK_DIALS) X(CKB_DIALS)
+    X(CKB_SHELL) X(CKB_DASH) X(CKB_SEAT) X(CKB_SIDE_L) X(CKB_SIDE_R) X(CKB_THROTTLE) X(CKB_STICK) X(CKB_EJECT) X(CKB_TEETH) X(CKB_RIBS) X(CK_STRUTS) X(CK_DIALS) X(CKB_DIALS) \
+    X(WRIST) X(BEACON_FOE)
 #define X(n) S_##n,
 enum { SHAPE_LIST(X) S_COUNT };
 #undef X
@@ -67,6 +69,8 @@ typedef struct {
     int aiBurst, dummy, aggro;
     int far; // drawn as a flat card this frame (see mech_impostors_bake)
     int chassis, arm[2], burst[2]; // which body, which arm on the left and right shoulder, shots into the current burst
+    int wave;              // came with the current wave of enemies: it counts towards clearing it
+    float drop, dropV;     // dropped in from the sky: metres still to fall, and how fast (m/s, negative)
 } Mech;
 
 void mech_shapes_init(void);
@@ -98,4 +102,7 @@ int shape_ray(const Shape *s, xf x, v3 ro, v3 rd, float tmax, const float (*dent
 int mech_ray(const Mech *m, v3 ro, v3 rd, float tmax, float *t, int *part, v3 *local);
 // Applies damage. Returns the part's new stage if it changed, otherwise -1.
 int mech_damage(Mech *m, int part, v3 local, float dmg);
+// Repairs a part by this many hit points and closes its holes, the one nearest `local` first. The holes close in step
+// with the hit points, so the part is whole when it is back to full. Returns the part's new stage if it went down, otherwise -1.
+int mech_repair(Mech *m, int part, v3 local, float hp);
 #endif
