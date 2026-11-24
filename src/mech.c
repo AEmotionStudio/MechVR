@@ -175,7 +175,11 @@ int mech_shapes_poll(void) {
     static char buf[1 << 16];
     struct stat st;
     if (!livePath || stat(livePath, &st)) return 0;
+#ifdef _WIN32 // Windows' stat has whole seconds only, so the size is mixed in to catch two saves within a second
+    long long stamp = (long long)st.st_mtime * 1000000007LL + st.st_size;
+#else
     long long stamp = (long long)st.st_mtim.tv_sec * 1000000000LL + st.st_mtim.tv_nsec;
+#endif
     if (stamp == liveStamp) return 0;
     FILE *f = fopen(livePath, "rb");
     if (!f) return 0;

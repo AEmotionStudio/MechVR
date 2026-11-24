@@ -1,15 +1,30 @@
-#include "audio.h"
+#ifdef _WIN32 // Windows plays through waveOut (winmm), Linux through ALSA; the synthesis is the same
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <mmsystem.h>
+#include <stdio.h>
+static SRWLOCK lock = SRWLOCK_INIT;
+static HANDLE thread, bufferDone;
+static HWAVEOUT pcm;
+#define LOCK() AcquireSRWLockExclusive(&lock)
+#define UNLOCK() ReleaseSRWLockExclusive(&lock)
+#else
 #include <alsa/asoundlib.h>
 #include <pthread.h>
+static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t thread;
+static snd_pcm_t *pcm;
+#define LOCK() pthread_mutex_lock(&lock)
+#define UNLOCK() pthread_mutex_unlock(&lock)
+#endif
+#include "audio.h"
 
 #define RATE 48000
 #define NVOICE 32
 #define CHUNK 256
 typedef struct { int type, on; float t, gl, gr, ph, lp; } Voice;
 static Voice voice[NVOICE];
-static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_t thread;
-static snd_pcm_t *pcm;
 static volatile int running;
 static int offline; // recording a video: no sound device, the recorder asks for samples as the game runs
 static v3 earPos, earRight = {1, 0, 0};
@@ -93,23 +108,74 @@ static void mix(short *buf, int n) { // n stereo frames
         }
 }
 
+#ifdef _WIN32
+// A ring of short buffers: the thread refills each one as soon as the sound card hands it back.
+#define NBUF 4
+#define BUFFRAMES 512 // 4 x 512 frames is about 43 ms queued, close to the 40 ms asked of ALSA
+static WAVEHDR hdr[NBUF];
+static short wbuf[NBUF][BUFFRAMES * 2];
+
+static DWORD WINAPI mix_thread(LPVOID arg) {
+    for (int next = 0; running; next = (next + 1) % NBUF) {
+        WAVEHDR *h = &hdr[next];
+        while (running && (h->dwFlags & WHDR_INQUEUE)) WaitForSingleObject(bufferDone, 100);
+        if (!running) break;
+        LOCK();
+        mix(wbuf[next], BUFFRAMES);
+        UNLOCK();
+        // If the device went away (a headset's audio switched off, say), keep the pace instead of spinning.
+        if (waveOutWrite(pcm, h, sizeof *h) != MMSYSERR_NOERROR) Sleep(BUFFRAMES * 1000 / RATE);
+    }
+    return (DWORD)(INT_PTR)arg;
+}
+
+void audio_init(void) {
+    WAVEFORMATEX wf = {0};
+    wf.wFormatTag = WAVE_FORMAT_PCM;
+    wf.nChannels = 2;
+    wf.nSamplesPerSec = RATE;
+    wf.wBitsPerSample = 16;
+    wf.nBlockAlign = 4;
+    wf.nAvgBytesPerSec = RATE * 4;
+    bufferDone = CreateEventA(NULL, FALSE, FALSE, NULL);
+    if (waveOutOpen(&pcm, WAVE_MAPPER, &wf, (DWORD_PTR)bufferDone, 0, CALLBACK_EVENT) != MMSYSERR_NOERROR) {
+        fprintf(stderr, "audio: cannot open the sound device; playing without sound\n");
+        CloseHandle(bufferDone);
+        pcm = NULL;
+        return;
+    }
+    for (int i = 0; i < NBUF; i++) {
+        hdr[i].lpData = (LPSTR)wbuf[i];
+        hdr[i].dwBufferLength = sizeof wbuf[i];
+        waveOutPrepareHeader(pcm, &hdr[i], sizeof hdr[i]);
+    }
+    running = 1;
+    thread = CreateThread(NULL, 0, mix_thread, NULL, 0, NULL);
+    SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST);
+}
+void audio_shutdown(void) {
+    if (!pcm) return;
+    running = 0;
+    SetEvent(bufferDone);
+    WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread);
+    waveOutReset(pcm);
+    for (int i = 0; i < NBUF; i++) waveOutUnprepareHeader(pcm, &hdr[i], sizeof hdr[i]);
+    waveOutClose(pcm);
+    CloseHandle(bufferDone);
+    pcm = NULL;
+}
+#else
 static void *mix_thread(void *arg) {
     short buf[CHUNK * 2];
     while (running) {
-        pthread_mutex_lock(&lock);
+        LOCK();
         mix(buf, CHUNK);
-        pthread_mutex_unlock(&lock);
+        UNLOCK();
         snd_pcm_sframes_t n = snd_pcm_writei(pcm, buf, CHUNK);
         if (n < 0) snd_pcm_recover(pcm, (int)n, 1);
     }
     return arg;
-}
-
-void audio_offline(void) { offline = 1; }
-void audio_render(short *out, int frames) {
-    pthread_mutex_lock(&lock);
-    mix(out, frames);
-    pthread_mutex_unlock(&lock);
 }
 
 void audio_init(void) {
@@ -127,6 +193,14 @@ void audio_shutdown(void) {
     snd_pcm_close(pcm);
     pcm = NULL;
 }
+#endif
+
+void audio_offline(void) { offline = 1; }
+void audio_render(short *out, int frames) {
+    LOCK();
+    mix(out, frames);
+    UNLOCK();
+}
 
 void audio_play(int type, v3 pos, float gain) {
     if (!pcm && !offline) return;
@@ -134,11 +208,11 @@ void audio_play(int type, v3 pos, float gain) {
     float dist = vlen(d), pan = dist > 0.3f ? vdot(d, earRight) / dist : 0;
     float g = gain * 14.0f / (14.0f + dist); // big machines: loud nearby, still audible far away
     if (g < 0.004f) return;
-    pthread_mutex_lock(&lock);
+    LOCK();
     int slot = 0;
     for (int k = 0; k < NVOICE; k++) { if (!voice[k].on) { slot = k; break; } if (voice[k].t > voice[slot].t) slot = k; }
     voice[slot] = (Voice){type, 1, 0, g * (0.6f - 0.4f * pan), g * (0.6f + 0.4f * pan), 0, 0};
-    pthread_mutex_unlock(&lock);
+    UNLOCK();
 }
 void audio_body(int isLiving) { living = isLiving; }
 void audio_listener(v3 pos, v3 right, float engine, float pitch, float alarm) {

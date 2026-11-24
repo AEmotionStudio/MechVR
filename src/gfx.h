@@ -1,18 +1,37 @@
 // Window, OpenGL context and small GL helpers.
+// Linux uses X11 and GLX (gfx.c); Windows uses Win32 and WGL (gfx_win32.c). Shader and texture helpers are shared (gfx.c).
 #ifndef GFX_H
 #define GFX_H
+#ifdef _WIN32
+// Windows' own OpenGL library stops at version 1.1; everything newer is looked up when the context is made (glfuncs.h).
+// Defining these two first keeps the GL headers from pulling all of windows.h into every file.
+#ifndef APIENTRY
+#define APIENTRY __stdcall
+#endif
+#ifndef WINGDIAPI
+#define WINGDIAPI __declspec(dllimport)
+#endif
+#include <GL/gl.h>
+#include <GL/glext.h>
+#include "glfuncs.h"
+#else
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
 #include <GL/glext.h>
 #include <GL/glx.h>
 #include <X11/Xlib.h>
+#endif
 
 typedef struct {
+#ifdef _WIN32
+    void *hwnd, *dc, *ctx;      // HWND, HDC and HGLRC
+#else
     Display *dpy;
     Window win;
     GLXContext ctx;
     GLXFBConfig fbc;
     unsigned long visualid;
+#endif
     int w, h;
     int quit;
     unsigned char key[256];     // held state, indexed by lowercase ASCII (plus K_* codes)

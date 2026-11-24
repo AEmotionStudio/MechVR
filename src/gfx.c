@@ -1,13 +1,15 @@
 #include "gfx.h"
-#include <X11/XKBlib.h>
-#include <X11/Xutil.h>
-#include <X11/keysym.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 
 extern const char shader_common[];
 extern const int shader_common_len;
+
+#ifndef _WIN32 // ---- Linux: X11 window, GLX context, keyboard and mouse (Windows: gfx_win32.c) ----
+#include <X11/XKBlib.h>
+#include <X11/Xutil.h>
+#include <X11/keysym.h>
+#include <time.h>
 
 static Atom wmDelete;
 
@@ -116,6 +118,7 @@ void gfx_poll(Gfx *g) {
 }
 
 void gfx_swap(Gfx *g) { glXSwapBuffers(g->dpy, g->win); }
+#endif // ---- end of the Linux part; the rest is shared ----
 
 const char *gfx_define = ""; // extra lines put at the top of the next shaders built, e.g. "#define EXTRA\n"
 static GLuint compile(const char *name, GLenum type, const char *src, int len) {

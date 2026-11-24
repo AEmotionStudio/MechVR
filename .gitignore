@@ -8,3 +8,16 @@ mechvr-packed
 *.blend1
 *.tmp
 __pycache__/
+
+# personal Blender working copies stay local
+*_personal_save.blend
+
+# rendered clips are uploaded to the assets-v1 release, not committed
+videos/
+
+# Windows builds
+*.exe
+dist/
+
+# editor settings
+.vscode/

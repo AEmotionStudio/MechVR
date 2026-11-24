@@ -1,0 +1,9 @@
+# Text files keep Unix line endings on every system, so the Makefile, shaders and shell scripts work from a
+# Windows checkout too. Windows batch files keep Windows line endings.
+* text=auto eol=lf
+*.bat text eol=crlf
+
+*.blend binary
+*.png binary
+*.webp binary
+*.mp4 binary

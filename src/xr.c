@@ -1,11 +1,56 @@
-#include "xr.h"
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <unknwn.h> // openxr_platform.h names IUnknown for Windows
+#define XR_USE_PLATFORM_WIN32
+#define XR_NO_PROTOTYPES // the OpenXR loader is opened when the headset is wanted, so --flat runs without it
+#define sleep_ms(ms) Sleep(ms)
+#else
+#include <unistd.h>
 #define XR_USE_PLATFORM_XLIB
+#define sleep_ms(ms) usleep((ms) * 1000)
+#endif
+#include "xr.h"
 #define XR_USE_GRAPHICS_API_OPENGL
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+// Every OpenXR call the game makes, looked up in openxr_loader.dll (next to mechvr.exe, or on the PATH).
+#define XR_FUNCS(X) X(xrAcquireSwapchainImage) X(xrApplyHapticFeedback) X(xrAttachSessionActionSets) X(xrBeginFrame) \
+    X(xrBeginSession) X(xrCreateAction) X(xrCreateActionSet) X(xrCreateActionSpace) X(xrCreateInstance)              \
+    X(xrCreateReferenceSpace) X(xrCreateSession) X(xrCreateSwapchain) X(xrDestroyInstance) X(xrDestroySession)       \
+    X(xrEndFrame) X(xrEndSession) X(xrEnumerateInstanceExtensionProperties) X(xrEnumerateReferenceSpaces)          \
+    X(xrEnumerateSwapchainFormats) X(xrEnumerateSwapchainImages) X(xrEnumerateViewConfigurationViews)              \
+    X(xrGetActionStateBoolean) X(xrGetActionStateFloat) X(xrGetActionStateVector2f) X(xrGetInstanceProcAddr)       \
+    X(xrGetInstanceProperties) X(xrGetSystem) X(xrGetSystemProperties) X(xrLocateSpace) X(xrLocateViews)           \
+    X(xrPollEvent) X(xrReleaseSwapchainImage) X(xrResultToString) X(xrStringToPath)                                \
+    X(xrSuggestInteractionProfileBindings) X(xrSyncActions) X(xrWaitFrame) X(xrWaitSwapchainImage)
+#define XR_DECLARE(f) static PFN_##f f;
+XR_FUNCS(XR_DECLARE)
+#undef XR_DECLARE
+
+static int xr_load(void) {
+    HMODULE m = LoadLibraryA("openxr_loader.dll");
+    if (!m) m = LoadLibraryA("libopenxr_loader.dll"); // the MSYS2 package's name for it
+    if (!m) {
+        fprintf(stderr, "xr: openxr_loader.dll not found. Put it next to mechvr.exe (it comes with the Windows download\n"
+                        "    and with the Khronos OpenXR SDK), or play in a window with --flat.\n");
+        return 0;
+    }
+#define XR_LOAD(f)                                                                  \
+    if (!(f = (PFN_##f)(void (*)(void))GetProcAddress(m, #f))) {                    \
+        fprintf(stderr, "xr: openxr_loader.dll has no %s\n", #f);                   \
+        return 0;                                                                   \
+    }
+    XR_FUNCS(XR_LOAD)
+#undef XR_LOAD
+    return 1;
+}
+#endif
 
 #define MAX_IMG 8
 static XrInstance inst;
@@ -117,6 +162,9 @@ static int initActions(void) {
 }
 
 int xr_init(Gfx *g) {
+#ifdef _WIN32
+    if (!xr_load()) return 0;
+#endif
     uint32_t n = 0;
     xrEnumerateInstanceExtensionProperties(NULL, 0, &n, NULL);
     XrExtensionProperties ext[256];
@@ -150,12 +198,18 @@ int xr_init(Gfx *g) {
     XrGraphicsRequirementsOpenGLKHR req = {XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_KHR};
     TRY(getReq(inst, sys, &req));
 
+#ifdef _WIN32
+    XrGraphicsBindingOpenGLWin32KHR gb = {XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
+    gb.hDC = (HDC)g->dc;
+    gb.hGLRC = (HGLRC)g->ctx;
+#else
     XrGraphicsBindingOpenGLXlibKHR gb = {XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR};
     gb.xDisplay = g->dpy;
     gb.visualid = (uint32_t)g->visualid;
     gb.glxFBConfig = g->fbc;
     gb.glxDrawable = g->win;
     gb.glxContext = g->ctx;
+#endif
     XrSessionCreateInfo sci = {XR_TYPE_SESSION_CREATE_INFO};
     sci.next = &gb;
     sci.systemId = sys;
@@ -267,7 +321,7 @@ static int locate(XrSpace s, XrTime t, xf *out) {
 void xr_begin(XrFrame *f) {
     memset(f, 0, sizeof *f);
     f->head = xfid();
-    if (!running) { usleep(20000); return; }
+    if (!running) { sleep_ms(20); return; }
     fstate = (XrFrameState){XR_TYPE_FRAME_STATE};
     if (XR_FAILED(xrWaitFrame(ses, NULL, &fstate))) return;
     xrBeginFrame(ses, NULL);
