@@ -104,6 +104,7 @@ vec3 normalAt(vec3 p) {
                      k.yxy * map(p + k.yxy * e) + k.xxx * map(p + k.xxx * e));
 }
 
+#ifdef SCREEN // the screens are drawn by a build of their own (pPartS); in the other builds this code slowed every pixel
 // 3 x 5 pixel digits, one bit per pixel, top row first
 const int DIGIT[10] = int[10](31599, 11415, 29671, 29391, 23497, 31183, 31215, 29257, 31727, 31695);
 // 1 where the number n (0..99) is lit: two digits whose lower left is cell o, each font pixel s cells across
@@ -161,6 +162,7 @@ vec3 screenColor(vec2 uv) {
     float glitch = step(0.985 - uAux.z * 0.25, hash12(vec2(g.y, floor(uTime * 20.0))));
     return mix(col, col.gbr * 1.5, glitch * step(0.3, uAux.z));
 }
+#endif
 
 void main() {
     vec3 ro = uRo, rd = normalize(vLocal - uRo);
@@ -263,7 +265,9 @@ void main() {
     // cabin parts get soft, mostly even light so every surface stays readable
     vec3 col = toon(base, uInterior == 1 ? 0.26 + 0.62 * dot(nw, lightDir) : dot(nw, lightDir), ao, spec, dither);
     if (mi == 4) col += vec3(0.20, 0.30, 0.32) * step(0.72, 1.0 - max(dot(nw, vw), 0.0)); // glass rim sheen
+#ifdef SCREEN
     if (mi == 6) { col = screenColor((p.xy - uScr.xy) * uScr.zw + 0.5); }
+#endif
     if (emis > 0.5) col = base;
     if (hot > 0.02) {
         float hb = floor(clamp(hot, 0.0, 0.999) * 4.0) / 3.0;

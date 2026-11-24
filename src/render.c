@@ -7,8 +7,8 @@ SH(tri_vert) SH(sky_frag) SH(terrain_vert) SH(terrain_frag) SH(part_vert) SH(par
 SH(particle_vert) SH(particle_frag) SH(final_frag) SH(imp_vert) SH(imp_frag)
 #define PROG(v, f) gfx_program(#f, shader_##v, shader_##v##_len, shader_##f, shader_##f##_len)
 
-static GLuint pSky, pTerrain, pPart, pPartX, pPtc, pFinal, pImp;
-static GLuint pCur; // the build of the part shader in use: pPart, or pPartX for cones and enlarged shapes
+static GLuint pSky, pTerrain, pPart, pPartX, pPartS, pPtc, pFinal, pImp;
+static GLuint pCur; // the build of the part shader in use: pPart, pPartX for cones and enlarged shapes, pPartS for screens
 typedef struct { int rows, cw, ch; float width, y0, height, texel; GLuint fbo, col, nrm, depth; } ImpLayer;
 static ImpLayer imps[IMP_LAYERS];
 static GLuint vaoEmpty, vaoCube, vaoGrid, vaoPtc, vboPtc, texHeight, dstFbo;
@@ -35,6 +35,8 @@ void render_init(const float *height, int hn) {
     pPart = PROG(part_vert, part_frag);
     gfx_define = "#define EXTRA\n";
     pPartX = PROG(part_vert, part_frag);
+    gfx_define = "#define SCREEN\n"; // the cockpit and wrist screens, kept apart: their picture code slowed every traced pixel
+    pPartS = PROG(part_vert, part_frag);
     gfx_define = "";
     pPtc = PROG(particle_vert, particle_frag);
     pFinal = PROG(tri_vert, final_frag);
@@ -341,7 +343,7 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
     // parts: draw the inside faces of each box so it also works with the camera inside the box
     glEnable(GL_CULL_FACE);
     glCullFace(GL_FRONT);
-    int ready[2] = {0, 0};
+    int ready[3] = {0, 0, 0};
     pCur = 0;
     glBindVertexArray(vaoCube);
     for (int i = 0; i < s->npart; i++) {
@@ -350,12 +352,13 @@ void render_view(const Scene *s, const View *v, GLuint dstTex, int w, int h, int
         v3 c = vsub(d->world.p, cam);
         float scale = d->scale > 0 ? d->scale : 1;
         if (vdot(c, fwd) < -sp->radius * scale) continue; // behind the viewer
-        GLuint p = scale != 1 || sp->cone || d->flip ? pPartX : pPart;
+        GLuint p = scale != 1 || sp->cone || d->flip ? pPartX : sp->scr[2] > 0 ? pPartS : pPart;
+        int build = p == pPart ? 0 : p == pPartX ? 1 : 2;
         if (p != pCur) {
             pCur = p;
-            if (ready[p == pPartX]) glUseProgram(p);
+            if (ready[build]) glUseProgram(p);
             else {
-                ready[p == pPartX] = 1;
+                ready[build] = 1;
                 common(p, s, pixAngle);
                 glUniform3f(U(p, "uCamW"), cam.x, cam.y, cam.z);
             }

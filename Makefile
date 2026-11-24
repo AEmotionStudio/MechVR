@@ -35,6 +35,8 @@ build/shaders.ok: $(GLSL) | build
 	  glslangValidator build/chk/$$n > build/chk/$$n.log 2>&1 || { cat build/chk/$$n.log; exit 1; }; \
 	  (echo '#version 450 core'; echo '#define EXTRA'; cat src/shaders/common.glsl $$f) > build/chk/$$n; \
 	  glslangValidator build/chk/$$n > build/chk/$$n.log 2>&1 || { cat build/chk/$$n.log; exit 1; }; \
+	  (echo '#version 450 core'; echo '#define SCREEN'; cat src/shaders/common.glsl $$f) > build/chk/$$n; \
+	  glslangValidator build/chk/$$n > build/chk/$$n.log 2>&1 || { cat build/chk/$$n.log; exit 1; }; \
 	done; touch $@
 
 build/shapes.ok: assets/shapes.txt tools/mechvr_blender.py | build
