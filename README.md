@@ -144,7 +144,7 @@ Every build checks each shader with `glslangValidator` and the shapes file with 
 
 ### Windows (untested)
 
-**Download:** when a Windows zip is attached to a [release](https://github.com/AEmotionStudio/MechVR/releases), unzip it and run `play-in-window.bat` (mouse and keyboard) or `play-vr.bat` (headset; start SteamVR first). Both keep their window open if the game stops with an error, so you can read it.
+**Download:** get `MechVR-windows.zip` from [MechVR 0.1.1](https://github.com/AEmotionStudio/MechVR/releases/tag/v0.1.1) ([direct download](https://github.com/AEmotionStudio/MechVR/releases/download/v0.1.1/MechVR-windows.zip), 0.9 MB), unzip it and run `play-in-window.bat` (mouse and keyboard) or `play-vr.bat` (headset; start SteamVR first). Both keep their window open if the game stops with an error, so you can read it.
 
 **Build it yourself** in an [MSYS2](https://www.msys2.org/) **UCRT64** shell:
 
