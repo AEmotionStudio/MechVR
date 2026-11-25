@@ -38,6 +38,23 @@ The game films these itself, sound included (see [Recording videos](#-recording-
 </tr>
 </table>
 
+### Played in VR
+
+These come from one real session in the headset: nine minutes, five waves beaten and a sixth that won. It was saved with `--record` while playing, then filmed afterwards from the replay, from the player's own steadied view and from a chase camera (see [Recording what you play](#recording-what-you-play)). [▶ Watch all five together, with sound](https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-vr-highlights.mp4) (92 s)
+
+<table>
+<tr>
+<td width="33%"><img src="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-repair.webp" alt="Repairing the mech on foot"><br><b>Repair on foot</b>: climbing out between waves to torch the scorched mech back to health, then climbing back in. <a href="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-repair.mp4">▶ With sound</a></td>
+<td width="33%"><img src="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-reactor.webp" alt="The reactor blows"><br><b>The reactor blows</b>: the mech goes up mid-fight, and the pilot is thrown clear into the wreckage to fight on with a pistol. <a href="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-reactor.mp4">▶ With sound</a></td>
+<td width="33%"><img src="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-worm-cockpit.webp" alt="The worm from the cockpit"><br><b>The worm, up close</b>: from the living mech's cockpit, the worm rises past the canopy and crashes down in front of it. <a href="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-worm-cockpit.mp4">▶ With sound</a></td>
+</tr>
+<tr>
+<td width="33%"><img src="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-worm-chase.webp" alt="The worm from behind the mech"><br><b>The worm, from behind</b>: the same fight from a chase camera, as the worm arcs over the mech. <a href="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-worm-chase.mp4">▶ With sound</a></td>
+<td width="33%"><img src="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-last-stand.webp" alt="The last stand in wave 6"><br><b>Last stand</b>: wave 6 rolls in, the mech falls, and the pilot is left on foot. <a href="https://github.com/AEmotionStudio/MechVR/releases/download/assets-v1/mechvr-last-stand.mp4">▶ With sound</a></td>
+<td width="33%"></td>
+</tr>
+</table>
+
 ---
 
 ## ✨ Features
