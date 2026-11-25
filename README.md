@@ -4,7 +4,7 @@
 
 **A VR mech game where every shape, effect and sound is made by code. Hold off growing waves of enemies from a working cockpit, shoot the arms off other mechs and graft them onto your own, climb out to weld your mech back together, and keep clear of the sand worm.**
 
-MechVR started as an experiment: could I make a game under 200 KB playable, look decent, AND fun in VR? And the answer was surprisingly yes. The whole game is one 188,704-byte program (77 KB packed), with no files beside it.
+MechVR started as an experiment: could I make a game under 200 KB playable, look decent, AND fun in VR? And the answer was surprisingly yes. The whole game is one 189,520-byte program (78 KB packed), with no files beside it.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge&logo=linux&logoColor=white)](#-compatibility)
@@ -69,7 +69,7 @@ These come from one real session in the headset: nine minutes, five waves beaten
 *   **Two bodies, four arms, any combination.** A steel machine and a living creature. Shoot an arm off any mech and graft it onto your own.
 *   **Plenty to fight.** Patrolling mechs, packs of crawlers, flights of drones, long-range turrets, and a 70 m sand worm.
 *   **No asset files.** Everything on screen and every sound comes from code; there are no image, model or audio files. The mechs, cockpits and rocks are one short text file that you can edit by hand or in Blender while the game reloads it live.
-*   **Under 200 KB.** That was the goal from the start. The Linux release build (`make release`) is 188,704 bytes, and `make packed` squeezes it into a 77,420-byte self-extracting file. Beside it, the game needs only what the system already has: the graphics driver, the OpenXR runtime and ALSA. The Windows build is larger (271 KB), because it is built for speed and carries its own C runtime.
+*   **Under 200 KB.** That was the goal from the start. The Linux release build (`make release`) is 189,520 bytes, and `make packed` squeezes it into a 78,080-byte self-extracting file. Beside it, the game needs only what the system already has: the graphics driver, the OpenXR runtime and ALSA. The Windows build is larger (271 KB), because it is built for speed and carries its own C runtime.
 *   **Crowds.** Far-away mechs are drawn as lit cards, so a hundred extra mechs cost little.
 *   **Films itself.** Scripted cameras and a scripted pilot record clips with sound through ffmpeg.
 
@@ -99,7 +99,7 @@ MechVR is a prototype, developed on Linux with an Oculus Rift CV1 through SteamV
 
 *   **Graphics:** a GPU with OpenGL 4.5, which covers most cards from the last ten years (Mesa or NVIDIA drivers on Linux, the vendor's own driver on Windows).
 *   **Headset:** an OpenXR runtime with OpenGL support. SteamVR is what it is developed with. Monado, WiVRn and ALVR should also work but are untested. On Windows, if another runtime is active and the game cannot start in the headset, set SteamVR as the current OpenXR runtime in its settings.
-*   **Controllers:** the controls are bound for Oculus Touch-style controllers (Rift, Quest). Other controllers get only trigger and menu unless your runtime remaps them.
+*   **Controllers:** Oculus Touch (Rift and every Quest), Valve Index, HTC Vive wands and Windows Mixed Reality controllers each have their own bindings, and so do the HP Reverb G2, Pico 4 and Vive Cosmos and Focus 3 controllers when the runtime offers them. A runtime with the generic controller layout covers anything else. Only Touch has been played so far; see [Other controllers](#other-controllers) for the buttons, and the console's `xr: left hand: ...` line for the bindings the runtime chose.
 *   **No headset?** `./mechvr --flat` plays in a window with mouse and keyboard.
 
 ---
@@ -191,6 +191,24 @@ This writes `dist/MechVR-windows/` and `dist/MechVR-windows.zip`. Take `x64/bin/
 | See the wave, your health and the part you are repairing, on foot | Look at your left wrist |
 | Switch look (smooth / texel / chunky) | B |
 | Restart | Menu button while holding the left grip |
+
+### Other controllers
+
+Triggers, grips and thumbsticks do the same on every controller. The buttons that differ:
+
+| On Touch | Valve Index | HTC Vive wands | Windows Mixed Reality |
+|---|---|---|---|
+| A (board, graft, climb out) | Right A | Right trackpad click | Right trackpad click |
+| B (switch look) | Right B | Right menu | Right menu |
+| X (backup eject) | Left A | None: pull the eject handle | None: pull the eject handle |
+| Y (re-fit the seat) | Left B | Left trackpad click | Left trackpad click |
+| Menu (restart, with the left grip) | Left thumbstick click | Left menu | Left menu |
+| Grip | Close your hand around the controller | Grip button | Grip button |
+| Thumbsticks | Thumbsticks | Touch the trackpads | Thumbsticks |
+
+*   **HP Reverb G2, Pico 4, Vive Cosmos and Vive Focus 3** controllers have the same buttons as Touch and work the same way.
+*   **Anything else**, on a runtime with the generic controller layout: the primary button does A and X, the secondary does B and Y, and a click of the left thumbstick is the menu button.
+*   SteamVR can change any of these: Settings, Controllers, Manage Controller Bindings.
 
 ### In a window (`--flat`)
 

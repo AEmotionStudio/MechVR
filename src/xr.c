@@ -26,8 +26,9 @@
     X(xrEndFrame) X(xrEndSession) X(xrEnumerateInstanceExtensionProperties) X(xrEnumerateReferenceSpaces)          \
     X(xrEnumerateSwapchainFormats) X(xrEnumerateSwapchainImages) X(xrEnumerateViewConfigurationViews)              \
     X(xrGetActionStateBoolean) X(xrGetActionStateFloat) X(xrGetActionStateVector2f) X(xrGetInstanceProcAddr)       \
-    X(xrGetInstanceProperties) X(xrGetSystem) X(xrGetSystemProperties) X(xrLocateSpace) X(xrLocateViews)           \
-    X(xrPollEvent) X(xrReleaseSwapchainImage) X(xrResultToString) X(xrStringToPath)                                \
+    X(xrGetCurrentInteractionProfile) X(xrGetInstanceProperties) X(xrGetSystem) X(xrGetSystemProperties)           \
+    X(xrLocateSpace) X(xrLocateViews) X(xrPathToString) X(xrPollEvent) X(xrReleaseSwapchainImage)                  \
+    X(xrResultToString) X(xrStringToPath)                                                                          \
     X(xrSuggestInteractionProfileBindings) X(xrSyncActions) X(xrWaitFrame) X(xrWaitSwapchainImage)
 #define XR_DECLARE(f) static PFN_##f f;
 XR_FUNCS(XR_DECLARE)
@@ -107,6 +108,34 @@ static int suggest(const char *profile, XrActionSuggestedBinding *b, int n) {
     return ok(xrSuggestInteractionProfileBindings(inst, &sb), profile);
 }
 
+// The controllers the game has bindings for. Each layout names the input behind each game action, per hand
+// ([0] left, [1] right; 0 leaves it unbound). The grip and aim poses and the rumble are the same on all of them.
+// a is the lower face button (X on a left Touch controller, A on a right one) and b the upper (Y, B); the menu
+// button is read on the left hand only. Layouts with an extension are used only when the runtime offers it.
+typedef struct {
+    const char *profile, *ext;
+    const char *trigger, *squeeze, *stick, *a[2], *b[2], *menu;
+} Layout;
+#define TOUCH_BUTTONS {"x/click", "a/click"}, {"y/click", "b/click"}, "menu/click" // the Touch layout of face buttons
+static const Layout layouts[] = {
+    {"oculus/touch_controller", 0, "trigger/value", "squeeze/value", "thumbstick", TOUCH_BUTTONS}, // Rift, every Quest
+    {"valve/index_controller", 0, "trigger/value", "squeeze/value", "thumbstick", // grab by closing the hand
+     {"a/click", "a/click"}, {"b/click", "b/click"}, "thumbstick/click"},
+    {"htc/vive_controller", 0, "trigger/value", "squeeze/click", "trackpad", // the trackpads stand in for thumbsticks
+     {0, "trackpad/click"}, {"trackpad/click", "menu/click"}, "menu/click"},
+    {"microsoft/motion_controller", 0, "trigger/value", "squeeze/click", "thumbstick", // Windows Mixed Reality
+     {0, "trackpad/click"}, {"trackpad/click", "menu/click"}, "menu/click"},
+    {"hp/mixed_reality_controller", "XR_EXT_hp_mixed_reality_controller", "trigger/value", "squeeze/value", "thumbstick", TOUCH_BUTTONS},
+    {"bytedance/pico4_controller", "XR_BD_controller_interaction", "trigger/value", "squeeze/value", "thumbstick", TOUCH_BUTTONS},
+    {"htc/vive_cosmos_controller", "XR_HTC_vive_cosmos_controller_interaction", "trigger/value", "squeeze/click", "thumbstick", TOUCH_BUTTONS},
+    {"htc/vive_focus3_controller", "XR_HTC_vive_focus3_controller_interaction", "trigger/value", "squeeze/value", "thumbstick", TOUCH_BUTTONS},
+    {"khr/generic_controller", "XR_KHR_generic_controller", "trigger/value", "squeeze/value", "thumbstick", // any other controller
+     {"primary/click", "primary/click"}, {"secondary/click", "secondary/click"}, "thumbstick/click"},
+    {"khr/simple_controller", 0, "select/click", 0, 0, {0, 0}, {0, 0}, "menu/click"}, // the last resort: point and click
+};
+#define NLAYOUT (sizeof layouts / sizeof layouts[0])
+static int layoutOn[NLAYOUT]; // 1 when the layout's extension was enabled
+
 static int initActions(void) {
     handPath[0] = path("/user/hand/left");
     handPath[1] = path("/user/hand/right");
@@ -124,26 +153,27 @@ static int initActions(void) {
     aMenu = mkAction("menu", XR_ACTION_TYPE_BOOLEAN_INPUT);
     aHaptic = mkAction("haptic", XR_ACTION_TYPE_VIBRATION_OUTPUT);
 
-    XrActionSuggestedBinding touch[] = {
-        {aGrip, path("/user/hand/left/input/grip/pose")},       {aGrip, path("/user/hand/right/input/grip/pose")},
-        {aAim, path("/user/hand/left/input/aim/pose")},         {aAim, path("/user/hand/right/input/aim/pose")},
-        {aTrig, path("/user/hand/left/input/trigger/value")},   {aTrig, path("/user/hand/right/input/trigger/value")},
-        {aSqueeze, path("/user/hand/left/input/squeeze/value")}, {aSqueeze, path("/user/hand/right/input/squeeze/value")},
-        {aStick, path("/user/hand/left/input/thumbstick")},     {aStick, path("/user/hand/right/input/thumbstick")},
-        {aBtnA, path("/user/hand/left/input/x/click")},         {aBtnA, path("/user/hand/right/input/a/click")},
-        {aBtnB, path("/user/hand/left/input/y/click")},         {aBtnB, path("/user/hand/right/input/b/click")},
-        {aMenu, path("/user/hand/left/input/menu/click")},
-        {aHaptic, path("/user/hand/left/output/haptic")},       {aHaptic, path("/user/hand/right/output/haptic")},
-    };
-    suggest("/interaction_profiles/oculus/touch_controller", touch, sizeof touch / sizeof touch[0]);
-    XrActionSuggestedBinding simple[] = {
-        {aGrip, path("/user/hand/left/input/grip/pose")},     {aGrip, path("/user/hand/right/input/grip/pose")},
-        {aAim, path("/user/hand/left/input/aim/pose")},       {aAim, path("/user/hand/right/input/aim/pose")},
-        {aTrig, path("/user/hand/left/input/select/click")},  {aTrig, path("/user/hand/right/input/select/click")},
-        {aMenu, path("/user/hand/left/input/menu/click")},
-        {aHaptic, path("/user/hand/left/output/haptic")},     {aHaptic, path("/user/hand/right/output/haptic")},
-    };
-    suggest("/interaction_profiles/khr/simple_controller", simple, sizeof simple / sizeof simple[0]);
+    // One set of bindings per controller layout; the runtime uses the one that fits the controllers in use.
+    for (unsigned i = 0; i < NLAYOUT; i++) {
+        const Layout *L = &layouts[i];
+        if (L->ext && !layoutOn[i]) continue; // the runtime does not offer this layout
+        XrActionSuggestedBinding b[18];
+        int n = 0;
+        for (int h = 0; h < 2; h++) {
+            const char *in[] = {"grip/pose", "aim/pose", L->trigger, L->squeeze, L->stick, L->a[h], L->b[h], h ? 0 : L->menu};
+            XrAction act[] = {aGrip, aAim, aTrig, aSqueeze, aStick, aBtnA, aBtnB, aMenu};
+            char p[96];
+            for (int k = 0; k < 8; k++)
+                if (in[k]) {
+                    snprintf(p, sizeof p, "%s/input/%s", h ? "/user/hand/right" : "/user/hand/left", in[k]);
+                    b[n++] = (XrActionSuggestedBinding){act[k], path(p)};
+                }
+            b[n++] = (XrActionSuggestedBinding){aHaptic, path(h ? "/user/hand/right/output/haptic" : "/user/hand/left/output/haptic")};
+        }
+        char prof[96];
+        snprintf(prof, sizeof prof, "/interaction_profiles/%s", L->profile);
+        suggest(prof, b, n);
+    }
 
     for (int h = 0; h < 2; h++) {
         XrActionSpaceCreateInfo sp = {XR_TYPE_ACTION_SPACE_CREATE_INFO};
@@ -172,15 +202,22 @@ int xr_init(Gfx *g) {
     for (uint32_t i = 0; i < n; i++) ext[i] = (XrExtensionProperties){XR_TYPE_EXTENSION_PROPERTIES};
     xrEnumerateInstanceExtensionProperties(NULL, n, &n, ext);
     int haveGL = 0;
-    for (uint32_t i = 0; i < n; i++)
+    const char *exts[1 + NLAYOUT] = {XR_KHR_OPENGL_ENABLE_EXTENSION_NAME};
+    uint32_t nexts = 1;
+    for (uint32_t i = 0; i < n; i++) {
         if (!strcmp(ext[i].extensionName, XR_KHR_OPENGL_ENABLE_EXTENSION_NAME)) haveGL = 1;
+        for (unsigned l = 0; l < NLAYOUT; l++) // controller layouts the runtime offers as extensions
+            if (layouts[l].ext && !layoutOn[l] && !strcmp(ext[i].extensionName, layouts[l].ext)) {
+                layoutOn[l] = 1;
+                exts[nexts++] = layouts[l].ext;
+            }
+    }
     if (!haveGL) { fprintf(stderr, "xr: runtime has no OpenGL support (or no runtime is active)\n"); return 0; }
 
-    const char *exts[] = {XR_KHR_OPENGL_ENABLE_EXTENSION_NAME};
     XrInstanceCreateInfo ici = {XR_TYPE_INSTANCE_CREATE_INFO};
     strcpy(ici.applicationInfo.applicationName, "MechVR");
     ici.applicationInfo.apiVersion = XR_API_VERSION_1_0;
-    ici.enabledExtensionCount = 1;
+    ici.enabledExtensionCount = nexts;
     ici.enabledExtensionNames = exts;
     TRY(xrCreateInstance(&ici, &inst));
     XrInstanceProperties ip = {XR_TYPE_INSTANCE_PROPERTIES};
@@ -287,6 +324,15 @@ int xr_poll(void) {
             }
         } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
             quitting = 1;
+        } else if (ev.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) { // say which bindings are in use
+            for (int h = 0; h < 2; h++) {
+                XrInteractionProfileState ps = {XR_TYPE_INTERACTION_PROFILE_STATE};
+                char name[XR_MAX_PATH_LENGTH] = "none";
+                uint32_t len = 0;
+                if (XR_SUCCEEDED(xrGetCurrentInteractionProfile(ses, handPath[h], &ps)) && ps.interactionProfile)
+                    xrPathToString(inst, ps.interactionProfile, sizeof name, &len, name);
+                printf("xr: %s hand: %s\n", h ? "right" : "left", name);
+            }
         }
         ev = (XrEventDataBuffer){XR_TYPE_EVENT_DATA_BUFFER};
     }
