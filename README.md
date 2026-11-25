@@ -4,12 +4,15 @@
 
 **A VR mech game where every shape, effect and sound is made by code. Hold off growing waves of enemies from a working cockpit, shoot the arms off other mechs and graft them onto your own, climb out to weld your mech back together, and keep clear of the sand worm.**
 
+MechVR started as an experiment: could a game under 200 KB be playable in VR? It is. The whole game is one 188,704-byte program (77 KB packed), with no files beside it.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge&logo=linux&logoColor=white)](#-compatibility)
 [![Windows: untested](https://img.shields.io/badge/Windows-untested-lightgrey?style=for-the-badge)](#-compatibility)
 [![VR: OpenXR](https://img.shields.io/badge/VR-OpenXR-purple?style=for-the-badge)](#-compatibility)
 [![Language: C](https://img.shields.io/badge/Language-C-555555?style=for-the-badge&logo=c&logoColor=white)](src)
 [![Assets: none](https://img.shields.io/badge/Asset_files-none-brightgreen?style=for-the-badge)](#-features)
+[![Size: under 200 KB](https://img.shields.io/badge/Size-under_200_KB-orange?style=for-the-badge)](#-features)
 
 [![Last Commit](https://img.shields.io/github/last-commit/AEmotionStudio/MechVR?style=for-the-badge&label=Last%20Update&color=orange)](https://github.com/AEmotionStudio/MechVR/commits)
 [![Activity](https://img.shields.io/github/commit-activity/m/AEmotionStudio/MechVR?style=for-the-badge&label=Activity&color=yellow)](https://github.com/AEmotionStudio/MechVR/commits)
@@ -66,7 +69,7 @@ These come from one real session in the headset: nine minutes, five waves beaten
 *   **Two bodies, four arms, any combination.** A steel machine and a living creature. Shoot an arm off any mech and graft it onto your own.
 *   **Plenty to fight.** Patrolling mechs, packs of crawlers, flights of drones, long-range turrets, and a 70 m sand worm.
 *   **No asset files.** Everything on screen and every sound comes from code; there are no image, model or audio files. The mechs, cockpits and rocks are one short text file that you can edit by hand or in Blender while the game reloads it live.
-*   **Small.** The whole game packs into a 68 KB self-extracting file (`make packed`).
+*   **Under 200 KB.** That was the goal from the start. The Linux release build (`make release`) is 188,704 bytes, and `make packed` squeezes it into a 77,420-byte self-extracting file. Beside it, the game needs only what the system already has: the graphics driver, the OpenXR runtime and ALSA. The Windows build is larger (271 KB), because it is built for speed and carries its own C runtime.
 *   **Crowds.** Far-away mechs are drawn as lit cards, so a hundred extra mechs cost little.
 *   **Films itself.** Scripted cameras and a scripted pilot record clips with sound through ffmpeg.
 
