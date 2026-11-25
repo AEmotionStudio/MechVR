@@ -4,7 +4,7 @@
 
 **A VR mech game where every shape, effect and sound is made by code. Hold off growing waves of enemies from a working cockpit, shoot the arms off other mechs and graft them onto your own, climb out to weld your mech back together, and keep clear of the sand worm.**
 
-MechVR started as an experiment: could a game under 200 KB be playable in VR? It is. The whole game is one 188,704-byte program (77 KB packed), with no files beside it.
+MechVR started as an experiment: could I make a game under 200 KB playable, look decent, AND fun in VR? And the answer was surprisingly yes. The whole game is one 188,704-byte program (77 KB packed), with no files beside it.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-blue?style=for-the-badge&logo=linux&logoColor=white)](#-compatibility)
